@@ -6,9 +6,6 @@ authors = ["Niklas Eicker <git@nikl.me>"] # ToDo: you are the author ;)
 edition = "2021"
 exclude = ["dist", "build", "assets", "credits"]
 
-[workspace]
-members = ["mobile"]
-
 [profile.dev.package."*"]
 opt-level = 3
 
@@ -58,10 +55,3 @@ bevy_kira_audio = { version = "0.18" }
 bevy_asset_loader = { version = "0.18" }
 rand = { version = "0.8.3" }
 webbrowser = { version = "0.8", features = ["hardened"] }
-
-# keep the following in sync with Bevy's dependencies
-winit = { version = "0.28.7", default-features = false }
-image = { version = "0.24", default-features = false }
-
-[build-dependencies]
-embed-resource = "1.4"
