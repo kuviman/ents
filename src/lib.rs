@@ -5,6 +5,7 @@ mod audio;
 mod loading;
 mod menu;
 mod player;
+mod error;
 
 use crate::actions::ActionsPlugin;
 use crate::audio::InternalAudioPlugin;
@@ -27,6 +28,7 @@ enum GameState {
     Playing,
     // Here the menu is drawn and waiting for player interaction
     Menu,
+    Error,
 }
 
 pub struct GamePlugin;
@@ -35,6 +37,7 @@ impl Plugin for GamePlugin {
     fn build(&self, app: &mut App) {
         app.add_state::<GameState>().add_plugins((
             LoadingPlugin,
+            error::ErrorPlugin,
             MenuPlugin,
             ActionsPlugin,
             InternalAudioPlugin,
