@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use bevy::prelude::*;
 use rand::Rng;
 
@@ -8,6 +10,10 @@ pub struct GamePlugin;
 impl Plugin for GamePlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, setup_ui);
+        app.add_systems(Update, button_visuals);
+        app.add_systems(Update, button_actions);
+        app.add_event::<ButtonAction>();
+        app.add_systems(Update, button_clicks::<ButtonAction>);
         app.add_systems(
             Update,
             ui_scale_because_ui_works_on_cameras_but_does_not_actually_use_cameras,
@@ -21,7 +27,60 @@ impl Plugin for GamePlugin {
     }
 }
 
-fn update_money_text(mut money_text: Query<&mut Text, Has<MoneyText>>, money: Res<Money>) {
+fn button_actions(mut events: EventReader<ButtonAction>) {
+    for event in events.read() {
+        info!("{event:?}");
+    }
+}
+
+#[derive(Debug, Event, Component, Copy, Clone)]
+enum ButtonAction {
+    SpawnMinion,
+}
+
+fn button_clicks<A: Copy + Component + Event>(
+    buttons: Query<(Entity, &Interaction, &A), Changed<Interaction>>,
+    mut prev_interaction: Local<HashMap<Entity, Interaction>>,
+    mut click_events: EventWriter<A>,
+) {
+    for (button_entity, interaction, action) in buttons.iter() {
+        if *interaction == Interaction::Hovered
+            && prev_interaction.get(&button_entity) == Some(&Interaction::Pressed)
+        {
+            click_events.send(*action);
+        }
+        prev_interaction.insert(button_entity, *interaction);
+    }
+}
+
+fn button_visuals(
+    mut interaction_query: Query<
+        (&Interaction, &mut BackgroundColor, &mut BorderColor),
+        (Changed<Interaction>, With<Button>),
+    >,
+) {
+    const NORMAL_BUTTON: Color = Color::rgb(0.15, 0.15, 0.15);
+    const HOVERED_BUTTON: Color = Color::rgb(0.25, 0.25, 0.25);
+    const PRESSED_BUTTON: Color = Color::rgb(0.35, 0.75, 0.35);
+    for (interaction, mut color, mut border_color) in &mut interaction_query {
+        match *interaction {
+            Interaction::Pressed => {
+                *color = PRESSED_BUTTON.into();
+                border_color.0 = Color::RED;
+            }
+            Interaction::Hovered => {
+                *color = HOVERED_BUTTON.into();
+                border_color.0 = Color::WHITE;
+            }
+            Interaction::None => {
+                *color = NORMAL_BUTTON.into();
+                border_color.0 = Color::BLACK;
+            }
+        }
+    }
+}
+
+fn update_money_text(mut money_text: Query<&mut Text, With<MoneyText>>, money: Res<Money>) {
     for mut money_text in money_text.iter_mut() {
         money_text.sections[0].value = format!("MONEY: {}", money.0);
     }
@@ -52,8 +111,40 @@ fn setup_ui(mut commands: Commands) {
             },
             ..default()
         })
-        .with_children(|parent| {
-            parent.spawn((TextBundle::from_section("$$$", default()), MoneyText));
+        .with_children(|root| {
+            root.spawn((TextBundle::from_section("$$$", default()), MoneyText));
+            root.spawn(NodeBundle {
+                style: Style {
+                    width: Val::Percent(100.0),
+                    bottom: Val::Px(24.0),
+                    position_type: PositionType::Absolute,
+                    justify_content: JustifyContent::Center,
+                    ..default()
+                },
+                ..default()
+            })
+            .with_children(|bottom| {
+                bottom
+                    .spawn((
+                        ButtonBundle {
+                            style: Style {
+                                width: Val::Px(100.0),
+                                height: Val::Px(40.0),
+                                border: UiRect::all(Val::Px(5.0)),
+                                // horizontally center child text
+                                justify_content: JustifyContent::Center,
+                                // vertically center child text
+                                align_items: AlignItems::Center,
+                                ..default()
+                            },
+                            ..default()
+                        },
+                        ButtonAction::SpawnMinion,
+                    ))
+                    .with_children(|button| {
+                        button.spawn(TextBundle::from_section("button", default()));
+                    });
+            });
         });
 }
 

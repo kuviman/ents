@@ -5,6 +5,9 @@ publish = false
 authors = ["kuviman"]
 edition = "2021"
 
+[lints.clippy]
+type_complexity = "allow"
+
 [profile.dev.package."*"]
 opt-level = 3
 
