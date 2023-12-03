@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 use bevy::DefaultPlugins;
 
+mod cursor;
 mod game;
 
 fn main() {
@@ -20,6 +21,6 @@ fn main() {
             }),
             ..default()
         }))
-        .add_plugins(game::GamePlugin)
+        .add_plugins((game::GamePlugin, cursor::Plugin))
         .run();
 }
