@@ -7,12 +7,58 @@ pub struct GamePlugin;
 
 impl Plugin for GamePlugin {
     fn build(&self, app: &mut App) {
+        app.add_systems(Startup, setup_ui);
+        app.add_systems(
+            Update,
+            ui_scale_because_ui_works_on_cameras_but_does_not_actually_use_cameras,
+        );
         app.add_systems(Startup, spawn_a_LOT_of_entities);
+        app.insert_resource(Money(0));
+        app.add_systems(Update, update_money_text);
         app.add_systems(Update, hover);
         app.add_systems(Update, scale_hovered);
         app.add_systems(Update, click);
     }
 }
+
+fn update_money_text(mut money_text: Query<&mut Text, Has<MoneyText>>, money: Res<Money>) {
+    for mut money_text in money_text.iter_mut() {
+        money_text.sections[0].value = format!("MONEY: {}", money.0);
+    }
+}
+
+fn ui_scale_because_ui_works_on_cameras_but_does_not_actually_use_cameras(
+    window: Query<&Window, With<bevy::window::PrimaryWindow>>,
+    mut ui_scale: ResMut<UiScale>,
+) {
+    ui_scale.0 = window.single().height() as f64 / 500.0;
+}
+
+#[derive(Component)]
+struct MoneyText;
+
+fn setup_ui(mut commands: Commands) {
+    // commands.spawn({
+    //     let mut camera = Camera2dBundle::default();
+    //     camera.projection.scaling_mode = bevy::render::camera::ScalingMode::FixedVertical(10.0);
+    //     camera
+    // });
+    commands
+        .spawn(NodeBundle {
+            style: Style {
+                width: Val::Percent(100.0),
+                height: Val::Percent(100.0),
+                ..default()
+            },
+            ..default()
+        })
+        .with_children(|parent| {
+            parent.spawn((TextBundle::from_section("$$$", default()), MoneyText));
+        });
+}
+
+#[derive(Resource)]
+struct Money(i32);
 
 #[derive(Component)]
 struct Hovered;
@@ -53,11 +99,13 @@ fn scale_hovered(mut entities: Query<(&mut Transform, Has<Hovered>), With<ScaleO
 fn click(
     input: Res<Input<MouseButton>>,
     hovered: Query<Entity, With<Hovered>>,
+    mut money: ResMut<Money>,
     mut commands: Commands,
 ) {
     if input.just_pressed(MouseButton::Left) {
         for entity in hovered.iter() {
             commands.entity(entity).despawn();
+            money.0 += 1;
         }
     }
 }
@@ -98,6 +146,6 @@ fn spawn_a_LOT_of_entities(mut commands: Commands) {
     commands.spawn({
         let mut camera = Camera2dBundle::new_with_far(1000.0);
         camera.projection.scaling_mode = bevy::render::camera::ScalingMode::FixedVertical(100.0);
-        camera
+        (camera, UiCameraConfig { show_ui: true })
     });
 }
