@@ -20,6 +20,6 @@ fn main() {
             }),
             ..default()
         }))
-        .add_plugins(GamePlugin)
+        .add_plugins(game::GamePlugin)
         .run();
 }
