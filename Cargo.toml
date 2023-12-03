@@ -20,3 +20,4 @@ dev = ["bevy/dynamic_linking"]
 
 [dependencies]
 bevy = "0.12"
+rand = "0.8"
