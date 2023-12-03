@@ -14,7 +14,6 @@ bevy_window::system: No windows are open, exiting
 
 In reality: need to Ctrl-C
 
-
 ## Inserting into despawned entities
 
 Although entity existed during system? Becase of system order? Which is RNG? POG
