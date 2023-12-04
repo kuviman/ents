@@ -1,0 +1,23 @@
+name: Release
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  itch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+      - uses: jetli/trunk-action@v0.4.0
+      - run: rustup target add wasm32-unknown-unknown
+      - run: trunk --config build --release
+      - uses: manleydev/butler-publish-itchio-action@master
+        env:
+            BUTLER_CREDENTIALS: ${{ secrets.BUTLER_CREDENTIALS }}
+            CHANNEL: html5
+            ITCH_GAME: ents
+            ITCH_USER: kuviman
+            PACKAGE: dist
