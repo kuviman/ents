@@ -12,7 +12,7 @@ pub struct GamePlugin;
 
 const MINION_COST: i32 = 10;
 
-const MAP_SIZE: i32 = 30;
+const MAP_SIZE: i32 = 100;
 
 impl Plugin for GamePlugin {
     fn build(&self, app: &mut App) {
@@ -101,7 +101,21 @@ struct CanHavest;
 fn minion_harvest(
     minions: Query<&GridCoords, (With<CanHavest>, With<Idle>)>,
     harvestables: Query<&Harvestable>,
+    tile_map: Res<TileMap>,
+    mut money: ResMut<Money>,
+    mut commands: Commands,
 ) {
+    for minion_coords in minions.iter() {
+        for dir in MINION_MOVE_DIRECTIONS {
+            let next_pos = minion_coords.0 + dir;
+            for entity in tile_map.entities_at(next_pos) {
+                if let Ok(harvestable) = harvestables.get(entity) {
+                    commands.entity(entity).despawn();
+                    money.0 += harvestable.0;
+                }
+            }
+        }
+    }
 }
 
 fn update_movement(
@@ -109,7 +123,7 @@ fn update_movement(
     time: Res<Time>,
     mut commands: Commands,
 ) {
-    const MINION_MOVE_TIME: f32 = 1.0;
+    const MINION_MOVE_TIME: f32 = 0.2;
     for (entity, mut coords, mut moving) in q.iter_mut() {
         moving.t += time.delta_seconds() / MINION_MOVE_TIME;
         if moving.t > 1.0 {
@@ -243,6 +257,7 @@ fn minion_movement(
 fn place_minion(
     cursor: Query<&cursor::WorldPos>,
     input: Res<Input<MouseButton>>,
+    keyboard: Res<Input<KeyCode>>,
     mut commands: Commands,
     mut player_state: ResMut<NextState<PlayerState>>,
     mut money: ResMut<Money>,
@@ -265,8 +280,11 @@ fn place_minion(
             GridCoords(pos),
             Minion,
             Idle,
+            CanHavest,
         ));
-        player_state.set(PlayerState::Normal);
+        if !keyboard.pressed(KeyCode::ShiftLeft) {
+            player_state.set(PlayerState::Normal);
+        }
     }
 }
 
