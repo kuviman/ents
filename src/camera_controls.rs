@@ -44,7 +44,7 @@ fn camera_controls(
     camera_transform.translation += dir.extend(0.0) * CAMERA_SPEED * time.delta_seconds();
 
     for wheel in wheel.read() {
-        projection.scale = (projection.scale - wheel.y * 0.1).clamp(0.1, 10.0);
+        projection.scale = (projection.scale - wheel.y * 0.1).clamp(0.1, 2.0);
     }
 
     for moved in cursor_events.read() {
