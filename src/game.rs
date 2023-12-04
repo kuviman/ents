@@ -1,11 +1,15 @@
-use bevy::prelude::*;
-use rand::Rng;
+use std::collections::VecDeque;
+
+use bevy::{prelude::*, utils::HashMap};
+use rand::{seq::SliceRandom, thread_rng, Rng};
 
 use crate::{buttons, cursor, ui};
 
 pub struct GamePlugin;
 
 const MINION_COST: i32 = 10;
+
+const MAP_SIZE: i32 = 30;
 
 impl Plugin for GamePlugin {
     fn build(&self, app: &mut App) {
@@ -25,7 +29,149 @@ impl Plugin for GamePlugin {
             Update,
             (place_minion, cancel_placing).run_if(in_state(PlayerState::PlacingMinion)),
         );
+        app.insert_resource(Pathfinding {
+            closest_harvest: default(),
+        });
+        app.add_systems(Update, (pathfind, minion_movement));
+        app.add_systems(Update, update_transforms);
+        app.add_systems(Update, update_movement);
         app.add_state::<PlayerState>();
+    }
+}
+
+fn update_movement(
+    mut q: Query<(Entity, &mut GridCoords, &mut Moving)>,
+    time: Res<Time>,
+    mut commands: Commands,
+) {
+    const MINION_MOVE_TIME: f32 = 1.0;
+    for (entity, mut coords, mut moving) in q.iter_mut() {
+        moving.t += time.delta_seconds() / MINION_MOVE_TIME;
+        if moving.t > 1.0 {
+            commands.entity(entity).remove::<Moving>().insert(Idle);
+            coords.0 = moving.next_pos;
+        }
+    }
+}
+
+fn update_transforms(
+    mut q: Query<
+        (&mut Transform, &GridCoords, Option<&Moving>),
+        Or<(Changed<GridCoords>, Changed<Moving>)>,
+    >,
+) {
+    for (mut transform, grid_coords, moving) in q.iter_mut() {
+        let from = grid_coords.0;
+        let (to, t) = moving.map_or((from, 0.0), |moving| (moving.next_pos, moving.t));
+        transform.translation = (from.as_vec2().lerp(to.as_vec2(), t) + Vec2::splat(0.5))
+            .extend(transform.translation.z);
+    }
+}
+
+#[derive(Copy, Clone, Debug)]
+struct ClosestHarvest {
+    distance: u32,
+    ways: f64,
+}
+
+#[derive(Resource)]
+struct Pathfinding {
+    closest_harvest: HashMap<IVec2, ClosestHarvest>,
+}
+
+const MINION_MOVE_DIRECTIONS: [IVec2; 4] = [IVec2::X, IVec2::Y, IVec2::NEG_X, IVec2::NEG_Y];
+
+fn pathfind(
+    mut pathfinding: ResMut<Pathfinding>,
+    harvestables: Query<&GridCoords, With<Harvestable>>,
+) {
+    let closest_harvest = &mut pathfinding.closest_harvest;
+    closest_harvest.clear();
+
+    let mut q = VecDeque::new();
+
+    for coords in harvestables.iter() {
+        let coords = coords.0;
+        closest_harvest.insert(
+            coords,
+            ClosestHarvest {
+                distance: 0,
+                ways: 1.0,
+            },
+        );
+        q.push_back(coords);
+    }
+
+    while let Some(pos) = q.pop_front() {
+        let current = *closest_harvest.get(&pos).unwrap();
+        for dir in MINION_MOVE_DIRECTIONS {
+            let next_pos = pos + dir;
+            if next_pos.x.abs() > MAP_SIZE || next_pos.y.abs() > MAP_SIZE {
+                continue;
+            }
+            match closest_harvest.entry(next_pos) {
+                bevy::utils::hashbrown::hash_map::Entry::Occupied(mut entry) => {
+                    let that = entry.get_mut();
+                    if that.distance == current.distance + 1 {
+                        that.ways += current.ways;
+                    }
+                }
+                bevy::utils::hashbrown::hash_map::Entry::Vacant(entry) => {
+                    entry.insert(ClosestHarvest {
+                        distance: current.distance + 1,
+                        ways: current.ways,
+                    });
+                    q.push_back(next_pos);
+                }
+            }
+        }
+    }
+}
+
+#[derive(Component)]
+struct Idle;
+
+#[derive(Component)]
+struct Minion;
+
+#[derive(Component)]
+struct Moving {
+    next_pos: IVec2,
+    t: f32,
+}
+
+fn minion_movement(
+    minions: Query<(Entity, &GridCoords), (With<Minion>, With<Idle>)>,
+    pathfinding: Res<Pathfinding>,
+    mut commands: Commands,
+) {
+    for (entity, minion_pos) in minions.iter() {
+        let Some(closest_harvest) = pathfinding.closest_harvest.get(&minion_pos.0) else {
+            continue;
+        };
+        if closest_harvest.distance <= 1 {
+            continue;
+        }
+        if let Ok(&dir) = MINION_MOVE_DIRECTIONS.choose_weighted(&mut thread_rng(), |&dir| {
+            pathfinding
+                .closest_harvest
+                .get(&(minion_pos.0 + dir))
+                .map_or(0.0, |h| {
+                    if h.distance != closest_harvest.distance - 1 {
+                        0.0
+                    } else {
+                        h.ways
+                    }
+                })
+        }) {
+            commands
+                .entity(entity)
+                .insert(Moving {
+                    next_pos: minion_pos.0 + dir,
+                    t: 0.0,
+                })
+                .remove::<Idle>();
+        }
     }
 }
 
@@ -45,19 +191,15 @@ fn place_minion(
         commands.spawn((
             SpriteBundle {
                 sprite: Sprite {
-                    color: Color::hsl(rand::thread_rng().gen_range(0.0..360.0), 0.5, 0.5),
+                    color: Color::BLACK,
                     custom_size: Some(Vec2::splat(1.0)),
                     ..default()
                 },
-                transform: Transform::from_translation(Vec3::new(
-                    pos.x as f32 + 0.5,
-                    pos.y as f32 + 0.5,
-                    0.0,
-                )),
                 ..default()
             },
             GridCoords(pos),
-            ScaleOnHover,
+            Minion,
+            Idle,
         ));
         player_state.set(PlayerState::Normal);
     }
@@ -216,14 +358,14 @@ fn scale_hovered(mut entities: Query<(&mut Transform, Has<Hovered>), With<ScaleO
 
 fn click_harvest(
     input: Res<Input<MouseButton>>,
-    hovered: Query<Entity, With<Hovered>>,
+    hovered: Query<(Entity, &Harvestable), With<Hovered>>,
     mut money: ResMut<Money>,
     mut commands: Commands,
 ) {
     if input.just_pressed(MouseButton::Left) {
-        for entity in hovered.iter() {
+        for (entity, harvestable) in hovered.iter() {
             commands.entity(entity).despawn();
-            money.0 += 1;
+            money.0 += harvestable.0;
         }
     }
 }
@@ -231,14 +373,15 @@ fn click_harvest(
 #[derive(Component)]
 pub struct GridCoords(IVec2);
 
+#[derive(Component)]
+struct Harvestable(i32);
+
 #[allow(non_snake_case)]
 fn spawn_a_LOT_of_entities(mut commands: Commands) {
-    const MAX_COORD: i32 = 100;
-
     let mut ents = Vec::new();
 
-    for x in -MAX_COORD..=MAX_COORD {
-        for y in -MAX_COORD..=MAX_COORD {
+    for x in -MAP_SIZE..=MAP_SIZE {
+        for y in -MAP_SIZE..=MAP_SIZE {
             ents.push((
                 SpriteBundle {
                     sprite: Sprite {
@@ -246,15 +389,11 @@ fn spawn_a_LOT_of_entities(mut commands: Commands) {
                         custom_size: Some(Vec2::splat(1.0)),
                         ..default()
                     },
-                    transform: Transform::from_translation(Vec3::new(
-                        x as f32 + 0.5,
-                        y as f32 + 0.5,
-                        0.0,
-                    )),
                     ..default()
                 },
                 GridCoords(IVec2::new(x, y)),
                 ScaleOnHover,
+                Harvestable(1),
             ));
         }
     }
