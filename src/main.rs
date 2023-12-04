@@ -2,8 +2,11 @@ use bevy::prelude::*;
 use bevy::DefaultPlugins;
 
 mod buttons;
+mod camera_controls;
+mod chunks;
 mod cursor;
 mod game;
+mod tile_map;
 mod ui;
 
 fn main() {
@@ -28,6 +31,9 @@ fn main() {
             cursor::Plugin,
             buttons::Plugin,
             ui::Plugin,
+            chunks::Plugin,
+            camera_controls::Plugin,
+            tile_map::Plugin,
         ))
         .run();
 }

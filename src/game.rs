@@ -1,13 +1,13 @@
 use std::collections::VecDeque;
 
-use bevy::{
-    input::mouse::MouseWheel,
-    prelude::*,
-    utils::{HashMap, HashSet},
-};
+use bevy::{prelude::*, utils::HashMap};
 use rand::{seq::SliceRandom, thread_rng, Rng};
 
-use crate::{buttons, cursor, ui};
+use crate::{
+    buttons, cursor,
+    tile_map::{GridCoords, TileMap},
+    ui,
+};
 
 pub struct GamePlugin;
 
@@ -17,12 +17,14 @@ const MAP_SIZE: i32 = 100;
 
 impl Plugin for GamePlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, camera_controls);
+        app.add_systems(Update, generate_chunks);
+
         app.add_systems(Startup, setup_ui);
         app.add_systems(Update, button_actions);
         app.add_systems(Update, disable_buttons);
         crate::buttons::register::<ButtonAction>(app);
-        app.add_systems(Startup, spawn_a_LOT_of_entities);
+        app.add_systems(Startup, setup_camera);
+        // app.add_systems(Startup, spawn_a_LOT_of_entities);
         app.insert_resource(Money(0));
         app.add_systems(Update, update_money_text);
         app.add_systems(Update, scale_hovered);
@@ -40,118 +42,42 @@ impl Plugin for GamePlugin {
         app.add_systems(Update, (pathfind, minion_movement, minion_harvest));
         app.add_systems(Update, update_transforms);
         app.add_systems(Update, update_movement);
-        app.insert_resource(TileMap {
-            entities_by_tile: default(),
-            prev: default(),
-        });
-        app.add_systems(PreUpdate, update_tile_map);
         app.add_state::<PlayerState>();
     }
 }
 
-fn camera_controls(
-    keyboard: Res<Input<KeyCode>>,
-    mouse_buttons: Res<Input<MouseButton>>,
-    mut cursor_events: EventReader<CursorMoved>,
-    mut wheel: EventReader<MouseWheel>,
-    mut camera: Query<(
-        &mut Transform,
-        &GlobalTransform,
-        &mut OrthographicProjection,
-        &Camera,
-    )>,
-    time: Res<Time>,
-    mut prev_cursor_pos: Local<Vec2>,
-) {
-    const CAMERA_SPEED: f32 = 50.0;
+fn generate_chunks(mut events: EventReader<crate::chunks::GenerateChunk>, mut commands: Commands) {
+    let mut ents = Vec::new();
 
-    let (mut camera_transform, global_camera_transform, mut projection, camera) =
-        camera.single_mut();
-    let mut dir = Vec2::ZERO;
-
-    if keyboard.any_pressed([KeyCode::W, KeyCode::Up]) {
-        dir.y += 1.0;
-    }
-    if keyboard.any_pressed([KeyCode::A, KeyCode::Left]) {
-        dir.x -= 1.0;
-    }
-    if keyboard.any_pressed([KeyCode::S, KeyCode::Down]) {
-        dir.y -= 1.0;
-    }
-    if keyboard.any_pressed([KeyCode::D, KeyCode::Right]) {
-        dir.x += 1.0;
-    }
-
-    camera_transform.translation += dir.extend(0.0) * CAMERA_SPEED * time.delta_seconds();
-
-    for wheel in wheel.read() {
-        projection.scale = (projection.scale - wheel.y * 0.1).clamp(0.1, 10.0);
-    }
-
-    for moved in cursor_events.read() {
-        if mouse_buttons.pressed(MouseButton::Middle) {
-            let Some(prev_world_pos) =
-                camera.viewport_to_world_2d(global_camera_transform, *prev_cursor_pos)
-            else {
-                continue;
-            };
-            let Some(new_world_pos) =
-                camera.viewport_to_world_2d(global_camera_transform, moved.position)
-            else {
-                continue;
-            };
-            camera_transform.translation += (prev_world_pos - new_world_pos).extend(0.0);
-        }
-        *prev_cursor_pos = moved.position;
-    }
-}
-
-#[derive(Resource)]
-struct TileMap {
-    entities_by_tile: HashMap<IVec2, HashSet<Entity>>,
-    prev: HashMap<Entity, IVec2>,
-}
-
-impl TileMap {
-    fn entities_at(&self, pos: IVec2) -> impl Iterator<Item = Entity> + '_ {
-        self.entities_by_tile
-            .get(&pos)
-            .into_iter()
-            .flatten()
-            .copied()
-    }
-}
-
-fn update_tile_map(
-    q: Query<(Entity, &GridCoords), Changed<GridCoords>>,
-    mut tile_map: ResMut<TileMap>,
-    mut removed: RemovedComponents<GridCoords>,
-) {
-    let tile_map = &mut *tile_map;
-    for entity in removed.read() {
-        if let Some(prev) = tile_map.prev.get(&entity) {
-            tile_map
-                .entities_by_tile
-                .get_mut(prev)
-                .unwrap()
-                .remove(&entity);
+    for event in events.read() {
+        let rect = event.rect();
+        for x in rect.min.x..rect.max.x {
+            for y in rect.min.y..rect.max.y {
+                ents.push((
+                    SpriteBundle {
+                        sprite: Sprite {
+                            color: Color::hsl(
+                                thread_rng().gen_range({
+                                    let off = 20.0;
+                                    120.0 - off..120.0 + off
+                                }),
+                                0.7,
+                                0.2,
+                            ),
+                            custom_size: Some(Vec2::splat(1.0)),
+                            ..default()
+                        },
+                        ..default()
+                    },
+                    GridCoords(IVec2::new(x, y)),
+                    ScaleOnHover,
+                    Harvestable(1),
+                ));
+            }
         }
     }
-    for (entity, coords) in q.iter() {
-        if let Some(prev) = tile_map.prev.get(&entity) {
-            tile_map
-                .entities_by_tile
-                .get_mut(prev)
-                .unwrap()
-                .remove(&entity);
-        }
-        tile_map
-            .entities_by_tile
-            .entry(coords.0)
-            .or_default()
-            .insert(entity);
-        tile_map.prev.insert(entity, coords.0);
-    }
+
+    commands.spawn_batch(ents);
 }
 
 #[derive(Component)]
@@ -515,42 +441,9 @@ fn click_harvest(
 }
 
 #[derive(Component)]
-pub struct GridCoords(IVec2);
-
-#[derive(Component)]
 struct Harvestable(i32);
 
-#[allow(non_snake_case)]
-fn spawn_a_LOT_of_entities(mut commands: Commands) {
-    let mut ents = Vec::new();
-
-    for x in -MAP_SIZE..=MAP_SIZE {
-        for y in -MAP_SIZE..=MAP_SIZE {
-            ents.push((
-                SpriteBundle {
-                    sprite: Sprite {
-                        color: Color::hsl(
-                            thread_rng().gen_range({
-                                let off = 20.0;
-                                120.0 - off..120.0 + off
-                            }),
-                            0.7,
-                            0.2,
-                        ),
-                        custom_size: Some(Vec2::splat(1.0)),
-                        ..default()
-                    },
-                    ..default()
-                },
-                GridCoords(IVec2::new(x, y)),
-                ScaleOnHover,
-                Harvestable(1),
-            ));
-        }
-    }
-
-    commands.spawn_batch(ents);
-
+fn setup_camera(mut commands: Commands) {
     commands.spawn({
         let mut camera = Camera2dBundle::new_with_far(1000.0);
         camera.projection.scaling_mode = bevy::render::camera::ScalingMode::FixedVertical(100.0);
