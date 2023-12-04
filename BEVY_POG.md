@@ -18,3 +18,7 @@ In reality: need to Ctrl-C
 
 Although entity existed during system? Becase of system order? Which is RNG? POG
 Also removing components seem to work
+
+## UI & cameras
+
+Why is ui tied to camera if if uses pixels anyway?
