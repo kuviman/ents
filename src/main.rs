@@ -1,8 +1,10 @@
 use bevy::prelude::*;
 use bevy::DefaultPlugins;
 
+mod buttons;
 mod cursor;
 mod game;
+mod ui;
 
 fn main() {
     App::new()
@@ -21,6 +23,11 @@ fn main() {
             }),
             ..default()
         }))
-        .add_plugins((game::GamePlugin, cursor::Plugin))
+        .add_plugins((
+            game::GamePlugin,
+            cursor::Plugin,
+            buttons::Plugin,
+            ui::Plugin,
+        ))
         .run();
 }
