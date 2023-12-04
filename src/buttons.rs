@@ -15,6 +15,9 @@ impl bevy::app::Plugin for Plugin {
     }
 }
 
+#[derive(Component)]
+pub struct Disabled(pub bool);
+
 fn button_clicks<A: Copy + Component + Event>(
     buttons: Query<(Entity, &Interaction, &A), Changed<Interaction>>,
     mut prev_interaction: Local<HashMap<Entity, Interaction>>,
@@ -32,14 +35,25 @@ fn button_clicks<A: Copy + Component + Event>(
 
 fn button_visuals(
     mut interaction_query: Query<
-        (&Interaction, &mut BackgroundColor, &mut BorderColor),
-        (Changed<Interaction>, With<Button>),
+        (
+            &Interaction,
+            Option<&Disabled>,
+            &mut BackgroundColor,
+            &mut BorderColor,
+        ),
+        (Or<(Changed<Interaction>, Changed<Disabled>)>, With<Button>),
     >,
 ) {
     const NORMAL_BUTTON: Color = Color::rgb(0.15, 0.15, 0.15);
     const HOVERED_BUTTON: Color = Color::rgb(0.25, 0.25, 0.25);
     const PRESSED_BUTTON: Color = Color::rgb(0.35, 0.75, 0.35);
-    for (interaction, mut color, mut border_color) in &mut interaction_query {
+    const DISABLED_BUTTON: Color = Color::rgb(0.4, 0.4, 0.4);
+    for (interaction, disabled, mut color, mut border_color) in &mut interaction_query {
+        if disabled.map_or(false, |d| d.0) {
+            *color = DISABLED_BUTTON.into();
+            border_color.0 = Color::GRAY;
+            continue;
+        }
         match *interaction {
             Interaction::Pressed => {
                 *color = PRESSED_BUTTON.into();

@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use rand::Rng;
 
-use crate::cursor;
+use crate::{buttons, cursor};
 
 pub struct GamePlugin;
 
@@ -9,6 +9,7 @@ impl Plugin for GamePlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, setup_ui);
         app.add_systems(Update, button_actions);
+        app.add_systems(Update, disable_buttons);
         crate::buttons::register::<ButtonAction>(app);
         app.add_systems(Startup, spawn_a_LOT_of_entities);
         app.insert_resource(Money(0));
@@ -16,6 +17,18 @@ impl Plugin for GamePlugin {
         app.add_systems(Update, hover);
         app.add_systems(Update, scale_hovered);
         app.add_systems(Update, click);
+    }
+}
+
+#[derive(Component)]
+struct MoneyRequired(i32);
+
+fn disable_buttons(
+    mut buttons: Query<(&mut buttons::Disabled, &MoneyRequired)>,
+    money: Res<Money>,
+) {
+    for (mut disabled, money_required) in buttons.iter_mut() {
+        disabled.0 = money_required.0 > money.0;
     }
 }
 
@@ -83,6 +96,8 @@ fn setup_ui(mut commands: Commands) {
                             ..default()
                         },
                         ButtonAction::SpawnMinion,
+                        buttons::Disabled(false),
+                        MoneyRequired(10),
                     ))
                     .with_children(|button| {
                         button.spawn(TextBundle::from_section("button", default()));
