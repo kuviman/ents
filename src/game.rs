@@ -60,7 +60,6 @@ fn camera_controls(
         &mut OrthographicProjection,
         &Camera,
     )>,
-    window: Query<&Window, With<bevy::window::PrimaryWindow>>,
     time: Res<Time>,
     mut prev_cursor_pos: Local<Vec2>,
 ) {
