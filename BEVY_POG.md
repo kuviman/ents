@@ -22,3 +22,9 @@ Also removing components seem to work
 ## UI & cameras
 
 Why is ui tied to camera if if uses pixels anyway?
+
+## Clicking through buttons
+
+<https://github.com/bevyengine/bevy/issues/3570>
+
+And the proposed solution doesn't even work because of `Changed<Interaction>`.

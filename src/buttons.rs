@@ -19,13 +19,14 @@ impl bevy::app::Plugin for Plugin {
 pub struct Disabled(pub bool);
 
 fn button_clicks<A: Copy + Component + Event>(
-    buttons: Query<(Entity, &Interaction, &A), Changed<Interaction>>,
+    buttons: Query<(Entity, Option<&Disabled>, &Interaction, &A), Changed<Interaction>>,
     mut prev_interaction: Local<HashMap<Entity, Interaction>>,
     mut click_events: EventWriter<A>,
 ) {
-    for (button_entity, interaction, action) in buttons.iter() {
+    for (button_entity, disabled, interaction, action) in buttons.iter() {
         if *interaction == Interaction::Hovered
             && prev_interaction.get(&button_entity) == Some(&Interaction::Pressed)
+            && !disabled.map_or(false, |d| d.0)
         {
             click_events.send(*action);
         }
