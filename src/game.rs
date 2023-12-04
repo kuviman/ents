@@ -1,6 +1,7 @@
 use std::collections::VecDeque;
 
 use bevy::{
+    input::mouse::MouseWheel,
     prelude::*,
     utils::{HashMap, HashSet},
 };
@@ -16,6 +17,7 @@ const MAP_SIZE: i32 = 100;
 
 impl Plugin for GamePlugin {
     fn build(&self, app: &mut App) {
+        app.add_systems(Update, camera_controls);
         app.add_systems(Startup, setup_ui);
         app.add_systems(Update, button_actions);
         app.add_systems(Update, disable_buttons);
@@ -44,6 +46,64 @@ impl Plugin for GamePlugin {
         });
         app.add_systems(PreUpdate, update_tile_map);
         app.add_state::<PlayerState>();
+    }
+}
+
+fn camera_controls(
+    keyboard: Res<Input<KeyCode>>,
+    mouse_buttons: Res<Input<MouseButton>>,
+    mut cursor_events: EventReader<CursorMoved>,
+    mut wheel: EventReader<MouseWheel>,
+    mut camera: Query<(
+        &mut Transform,
+        &GlobalTransform,
+        &mut OrthographicProjection,
+        &Camera,
+    )>,
+    window: Query<&Window, With<bevy::window::PrimaryWindow>>,
+    time: Res<Time>,
+    mut prev_cursor_pos: Local<Vec2>,
+) {
+    const CAMERA_SPEED: f32 = 50.0;
+
+    let (mut camera_transform, global_camera_transform, mut projection, camera) =
+        camera.single_mut();
+    let mut dir = Vec2::ZERO;
+
+    if keyboard.any_pressed([KeyCode::W, KeyCode::Up]) {
+        dir.y += 1.0;
+    }
+    if keyboard.any_pressed([KeyCode::A, KeyCode::Left]) {
+        dir.x -= 1.0;
+    }
+    if keyboard.any_pressed([KeyCode::S, KeyCode::Down]) {
+        dir.y -= 1.0;
+    }
+    if keyboard.any_pressed([KeyCode::D, KeyCode::Right]) {
+        dir.x += 1.0;
+    }
+
+    camera_transform.translation += dir.extend(0.0) * CAMERA_SPEED * time.delta_seconds();
+
+    for wheel in wheel.read() {
+        projection.scale = (projection.scale - wheel.y * 0.1).clamp(0.1, 10.0);
+    }
+
+    for moved in cursor_events.read() {
+        if mouse_buttons.pressed(MouseButton::Middle) {
+            let Some(prev_world_pos) =
+                camera.viewport_to_world_2d(global_camera_transform, *prev_cursor_pos)
+            else {
+                continue;
+            };
+            let Some(new_world_pos) =
+                camera.viewport_to_world_2d(global_camera_transform, moved.position)
+            else {
+                continue;
+            };
+            camera_transform.translation += (prev_world_pos - new_world_pos).extend(0.0);
+        }
+        *prev_cursor_pos = moved.position;
     }
 }
 
@@ -470,7 +530,14 @@ fn spawn_a_LOT_of_entities(mut commands: Commands) {
             ents.push((
                 SpriteBundle {
                     sprite: Sprite {
-                        color: Color::hsl(rand::thread_rng().gen_range(0.0..360.0), 0.5, 0.5),
+                        color: Color::hsl(
+                            thread_rng().gen_range({
+                                let off = 20.0;
+                                120.0 - off..120.0 + off
+                            }),
+                            0.7,
+                            0.2,
+                        ),
                         custom_size: Some(Vec2::splat(1.0)),
                         ..default()
                     },
