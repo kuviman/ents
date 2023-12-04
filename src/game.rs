@@ -7,17 +7,22 @@ use crate::{
     buttons,
     chunks::GeneratedChunks,
     cursor,
-    tile_map::{GridCoords, TileMap},
+    tile_map::{Pos, Size, TileMap},
     ui,
 };
 
 pub struct GamePlugin;
 
-const MINION_COST: i32 = 10;
-
 impl Plugin for GamePlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Update, generate_chunks);
+
+        app.insert_resource(EntCosts({
+            let mut costs = HashMap::new();
+            costs.insert(EntType::Harvester, 5);
+            costs.insert(EntType::Base, 7);
+            costs
+        }));
 
         app.add_systems(Startup, setup_ui);
         app.add_systems(Update, button_actions);
@@ -34,7 +39,9 @@ impl Plugin for GamePlugin {
         );
         app.add_systems(
             Update,
-            (place_minion, cancel_placing).run_if(in_state(PlayerState::PlacingMinion)),
+            (place_minion, cancel_placing).run_if(|state: Res<State<PlayerState>>| {
+                matches!(state.get(), PlayerState::Placing(..))
+            }),
         );
         app.insert_resource(GlobalPathfinding {
             closest_harvest: default(),
@@ -69,7 +76,7 @@ fn generate_chunks(mut events: EventReader<crate::chunks::GenerateChunk>, mut co
                         },
                         ..default()
                     },
-                    GridCoords(IVec2::new(x, y)),
+                    Pos(IVec2::new(x, y)),
                     ScaleOnHover,
                     Harvestable(1),
                 ));
@@ -84,7 +91,7 @@ fn generate_chunks(mut events: EventReader<crate::chunks::GenerateChunk>, mut co
 struct CanHavest;
 
 fn minion_harvest(
-    minions: Query<&GridCoords, (With<CanHavest>, With<Idle>)>,
+    minions: Query<&Pos, (With<CanHavest>, With<Idle>)>,
     harvestables: Query<&Harvestable>,
     tile_map: Res<TileMap>,
     mut money: ResMut<Money>,
@@ -104,7 +111,7 @@ fn minion_harvest(
 }
 
 fn update_movement(
-    mut q: Query<(Entity, &mut GridCoords, &mut Moving)>,
+    mut q: Query<(Entity, &mut Pos, &mut Moving)>,
     time: Res<Time>,
     mut commands: Commands,
 ) {
@@ -120,15 +127,23 @@ fn update_movement(
 
 fn update_transforms(
     mut q: Query<
-        (&mut Transform, &GridCoords, Option<&Moving>),
-        Or<(Changed<GridCoords>, Changed<Moving>)>,
+        (
+            &mut Transform,
+            &mut Sprite,
+            &Pos,
+            Option<&Size>,
+            Option<&Moving>,
+        ),
+        Or<(Changed<Pos>, Changed<Moving>, Changed<Size>)>,
     >,
 ) {
-    for (mut transform, grid_coords, moving) in q.iter_mut() {
+    for (mut transform, mut sprite, grid_coords, size, moving) in q.iter_mut() {
         let from = grid_coords.0;
+        let size = size.map_or(IVec2::splat(1), |size| size.0);
         let (to, t) = moving.map_or((from, 0.0), |moving| (moving.next_pos, moving.t));
-        transform.translation = (from.as_vec2().lerp(to.as_vec2(), t) + Vec2::splat(0.5))
+        transform.translation = (from.as_vec2().lerp(to.as_vec2(), t) + size.as_vec2() / 2.0)
             .extend(transform.translation.z);
+        sprite.custom_size = Some(size.as_vec2());
     }
 }
 
@@ -147,7 +162,7 @@ const MINION_MOVE_DIRECTIONS: [IVec2; 4] = [IVec2::X, IVec2::Y, IVec2::NEG_X, IV
 
 fn pathfind(
     mut pathfinding: ResMut<GlobalPathfinding>,
-    harvestables: Query<&GridCoords, With<Harvestable>>,
+    harvestables: Query<&Pos, With<Harvestable>>,
     mut closest_harvest: Local<HashMap<IVec2, ClosestHarvest>>,
     generated_chunks: Res<GeneratedChunks>,
     mut q: Local<VecDeque<IVec2>>,
@@ -204,7 +219,7 @@ fn pathfind(
 struct Idle;
 
 #[derive(Component)]
-struct Minion;
+struct CanMove;
 
 #[derive(Component)]
 struct Moving {
@@ -213,7 +228,7 @@ struct Moving {
 }
 
 fn minion_movement(
-    minions: Query<(Entity, &GridCoords), (With<Minion>, With<Idle>)>,
+    minions: Query<(Entity, &Pos), (With<CanMove>, With<Idle>)>,
     global_pathfinding: Res<GlobalPathfinding>,
     harvestables: Query<(), With<Harvestable>>,
     tile_map: Res<TileMap>,
@@ -269,6 +284,9 @@ fn minion_movement(
         }
 
         let from_closest_harvest = closest_harvest.get(&from)?;
+        if from_closest_harvest.distance <= 1 {
+            return None;
+        }
 
         MINION_MOVE_DIRECTIONS
             .choose_weighted(&mut thread_rng(), |&dir| {
@@ -326,27 +344,49 @@ fn place_minion(
     mut commands: Commands,
     mut player_state: ResMut<NextState<PlayerState>>,
     mut money: ResMut<Money>,
+    costs: Res<EntCosts>,
+    state: Res<State<PlayerState>>,
 ) {
+    let &PlayerState::Placing(ent_type) = state.get() else {
+        unreachable!();
+    };
     if input.just_pressed(MouseButton::Left) {
         let pos = cursor.single().0.floor().as_ivec2();
 
         // TODO check that empty
 
-        money.0 -= MINION_COST;
-        commands.spawn((
-            SpriteBundle {
-                sprite: Sprite {
-                    color: Color::BLACK,
-                    custom_size: Some(Vec2::splat(1.0)),
-                    ..default()
-                },
-                ..default()
-            },
-            GridCoords(pos),
-            Minion,
-            Idle,
-            CanHavest,
-        ));
+        money.0 -= costs.0[&ent_type];
+        match ent_type {
+            EntType::Harvester => {
+                commands.spawn((
+                    SpriteBundle {
+                        sprite: Sprite {
+                            color: Color::BLACK,
+                            ..default()
+                        },
+                        ..default()
+                    },
+                    Pos(pos),
+                    CanMove,
+                    Idle,
+                    CanHavest,
+                ));
+            }
+            EntType::Base => {
+                commands.spawn((
+                    SpriteBundle {
+                        sprite: Sprite {
+                            color: Color::RED,
+                            ..default()
+                        },
+                        ..default()
+                    },
+                    Pos(pos),
+                    Size(IVec2::splat(3)),
+                    Idle,
+                ));
+            }
+        }
         if !keyboard.pressed(KeyCode::ShiftLeft) {
             player_state.set(PlayerState::Normal);
         }
@@ -366,12 +406,24 @@ fn cancel_placing(
 enum PlayerState {
     #[default]
     Normal,
-    PlacingMinion,
+    Placing(EntType),
 }
 
-fn disable_buttons(mut buttons: Query<(&mut buttons::Disabled, &ButtonAction)>, money: Res<Money>) {
+#[derive(Resource)]
+struct EntCosts(HashMap<EntType, i32>);
+
+fn disable_buttons(
+    mut buttons: Query<(&mut buttons::Disabled, &ButtonAction)>,
+    money: Res<Money>,
+    costs: Res<EntCosts>,
+) {
     for (mut disabled, action) in buttons.iter_mut() {
-        disabled.0 = action.cost() > money.0;
+        disabled.0 = !match action {
+            ButtonAction::Spawn(typ) => match costs.0.get(typ) {
+                Some(&cost) => cost <= money.0,
+                None => true,
+            },
+        };
     }
 }
 
@@ -381,24 +433,22 @@ fn button_actions(
 ) {
     for event in events.read() {
         match event {
-            ButtonAction::SpawnMinion => {
-                player_state.set(PlayerState::PlacingMinion);
+            &ButtonAction::Spawn(typ) => {
+                player_state.set(PlayerState::Placing(typ));
             }
         }
     }
 }
 
-#[derive(Debug, Event, Component, Copy, Clone)]
-enum ButtonAction {
-    SpawnMinion,
+#[derive(Debug, PartialEq, Eq, Copy, Clone, Hash)]
+enum EntType {
+    Harvester,
+    Base,
 }
 
-impl ButtonAction {
-    fn cost(&self) -> i32 {
-        match self {
-            ButtonAction::SpawnMinion => MINION_COST,
-        }
-    }
+#[derive(Debug, Event, Component, Copy, Clone)]
+enum ButtonAction {
+    Spawn(EntType),
 }
 
 fn update_money_text(mut money_text: Query<&mut Text, With<MoneyText>>, money: Res<Money>) {
@@ -438,27 +488,29 @@ fn setup_ui(mut commands: Commands) {
                 ..default()
             })
             .with_children(|bottom| {
-                bottom
-                    .spawn((
-                        ButtonBundle {
-                            style: Style {
-                                width: Val::Px(100.0),
-                                height: Val::Px(40.0),
-                                border: UiRect::all(Val::Px(5.0)),
-                                // horizontally center child text
-                                justify_content: JustifyContent::Center,
-                                // vertically center child text
-                                align_items: AlignItems::Center,
+                for typ in [EntType::Harvester, EntType::Base] {
+                    bottom
+                        .spawn((
+                            ButtonBundle {
+                                style: Style {
+                                    width: Val::Px(100.0),
+                                    height: Val::Px(40.0),
+                                    border: UiRect::all(Val::Px(5.0)),
+                                    // horizontally center child text
+                                    justify_content: JustifyContent::Center,
+                                    // vertically center child text
+                                    align_items: AlignItems::Center,
+                                    ..default()
+                                },
                                 ..default()
                             },
-                            ..default()
-                        },
-                        ButtonAction::SpawnMinion,
-                        buttons::Disabled(false),
-                    ))
-                    .with_children(|button| {
-                        button.spawn(TextBundle::from_section("button", default()));
-                    });
+                            ButtonAction::Spawn(typ),
+                            buttons::Disabled(false),
+                        ))
+                        .with_children(|button| {
+                            button.spawn(TextBundle::from_section(format!("{typ:?}"), default()));
+                        });
+                }
             });
         });
 }

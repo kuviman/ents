@@ -16,12 +16,15 @@ impl bevy::app::Plugin for Plugin {
 }
 
 #[derive(Component)]
-pub struct GridCoords(pub IVec2);
+pub struct Pos(pub IVec2);
+
+#[derive(Component)]
+pub struct Size(pub IVec2);
 
 #[derive(Resource)]
 pub struct TileMap {
     entities_by_tile: HashMap<IVec2, HashSet<Entity>>,
-    prev: HashMap<Entity, IVec2>,
+    prev: HashMap<Entity, (IVec2, IVec2)>,
 }
 
 impl TileMap {
@@ -35,33 +38,46 @@ impl TileMap {
 }
 
 fn update_tile_map(
-    q: Query<(Entity, &GridCoords), Changed<GridCoords>>,
+    q: Query<(Entity, &Pos, Option<&Size>), Changed<Pos>>,
     mut tile_map: ResMut<TileMap>,
-    mut removed: RemovedComponents<GridCoords>,
+    mut removed: RemovedComponents<Pos>,
 ) {
     let tile_map = &mut *tile_map;
     for entity in removed.read() {
-        if let Some(prev) = tile_map.prev.get(&entity) {
-            tile_map
-                .entities_by_tile
-                .get_mut(prev)
-                .unwrap()
-                .remove(&entity);
+        if let Some((prev_pos, prev_size)) = tile_map.prev.remove(&entity) {
+            for dx in 0..prev_size.x {
+                for dy in 0..prev_size.y {
+                    tile_map
+                        .entities_by_tile
+                        .get_mut(&(prev_pos + IVec2::new(dx, dy)))
+                        .unwrap()
+                        .remove(&entity);
+                }
+            }
         }
     }
-    for (entity, coords) in q.iter() {
-        if let Some(prev) = tile_map.prev.get(&entity) {
-            tile_map
-                .entities_by_tile
-                .get_mut(prev)
-                .unwrap()
-                .remove(&entity);
+    for (entity, coords, size) in q.iter() {
+        let size = size.map_or(IVec2::splat(1), |size| size.0);
+        if let Some(&(prev_pos, prev_size)) = tile_map.prev.get(&entity) {
+            for dx in 0..prev_size.x {
+                for dy in 0..prev_size.y {
+                    tile_map
+                        .entities_by_tile
+                        .get_mut(&(prev_pos + IVec2::new(dx, dy)))
+                        .unwrap()
+                        .remove(&entity);
+                }
+            }
         }
-        tile_map
-            .entities_by_tile
-            .entry(coords.0)
-            .or_default()
-            .insert(entity);
-        tile_map.prev.insert(entity, coords.0);
+        for dx in 0..size.x {
+            for dy in 0..size.y {
+                tile_map
+                    .entities_by_tile
+                    .entry(coords.0 + IVec2::new(dx, dy))
+                    .or_default()
+                    .insert(entity);
+            }
+        }
+        tile_map.prev.insert(entity, (coords.0, size));
     }
 }
