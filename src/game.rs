@@ -1,6 +1,9 @@
 use std::collections::VecDeque;
 
-use bevy::{prelude::*, utils::HashMap};
+use bevy::{
+    prelude::*,
+    utils::{HashMap, HashSet},
+};
 use rand::{seq::SliceRandom, thread_rng, Rng};
 
 use crate::{buttons, cursor, ui};
@@ -32,11 +35,73 @@ impl Plugin for GamePlugin {
         app.insert_resource(Pathfinding {
             closest_harvest: default(),
         });
-        app.add_systems(Update, (pathfind, minion_movement));
+        app.add_systems(Update, (pathfind, minion_movement, minion_harvest));
         app.add_systems(Update, update_transforms);
         app.add_systems(Update, update_movement);
+        app.insert_resource(TileMap {
+            entities_by_tile: default(),
+            prev: default(),
+        });
+        app.add_systems(PreUpdate, update_tile_map);
         app.add_state::<PlayerState>();
     }
+}
+
+#[derive(Resource)]
+struct TileMap {
+    entities_by_tile: HashMap<IVec2, HashSet<Entity>>,
+    prev: HashMap<Entity, IVec2>,
+}
+
+impl TileMap {
+    fn entities_at(&self, pos: IVec2) -> impl Iterator<Item = Entity> + '_ {
+        self.entities_by_tile
+            .get(&pos)
+            .into_iter()
+            .flatten()
+            .copied()
+    }
+}
+
+fn update_tile_map(
+    q: Query<(Entity, &GridCoords), Changed<GridCoords>>,
+    mut tile_map: ResMut<TileMap>,
+    mut removed: RemovedComponents<GridCoords>,
+) {
+    let tile_map = &mut *tile_map;
+    for entity in removed.read() {
+        if let Some(prev) = tile_map.prev.get(&entity) {
+            tile_map
+                .entities_by_tile
+                .get_mut(prev)
+                .unwrap()
+                .remove(&entity);
+        }
+    }
+    for (entity, coords) in q.iter() {
+        if let Some(prev) = tile_map.prev.get(&entity) {
+            tile_map
+                .entities_by_tile
+                .get_mut(prev)
+                .unwrap()
+                .remove(&entity);
+        }
+        tile_map
+            .entities_by_tile
+            .entry(coords.0)
+            .or_default()
+            .insert(entity);
+        tile_map.prev.insert(entity, coords.0);
+    }
+}
+
+#[derive(Component)]
+struct CanHavest;
+
+fn minion_harvest(
+    minions: Query<&GridCoords, (With<CanHavest>, With<Idle>)>,
+    harvestables: Query<&Harvestable>,
+) {
 }
 
 fn update_movement(
@@ -323,21 +388,23 @@ struct Hovered;
 
 fn hover_pixel(
     cursor: Query<&cursor::WorldPos>,
-    entities: Query<(Entity, &GridCoords)>,
+    hovered: Query<Entity, With<Hovered>>,
+    tile_map: Res<TileMap>,
     ui_handling: Res<ui::UiHandling>,
     mut commands: Commands,
 ) {
-    // TODO optimize
+    for entity in hovered.iter() {
+        commands.entity(entity).remove::<Hovered>();
+    }
+    if ui_handling.is_pointer_over_ui {
+        return;
+    }
     let Ok(cursor) = cursor.get_single() else {
         return;
     };
     let cursor_grid_coords = cursor.0.floor().as_ivec2();
-    for (entity, entity_coords) in entities.iter() {
-        if entity_coords.0 == cursor_grid_coords && !ui_handling.is_pointer_over_ui {
-            commands.entity(entity).try_insert(Hovered);
-        } else {
-            commands.entity(entity).remove::<Hovered>();
-        }
+    for entity in tile_map.entities_at(cursor_grid_coords) {
+        commands.entity(entity).try_insert(Hovered);
     }
 }
 
