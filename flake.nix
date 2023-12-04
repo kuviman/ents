@@ -23,6 +23,7 @@
           clang
           mold
           trunk
+          butler
         ];
         appNativeBuildInputs = with pkgs; [
           pkg-config
