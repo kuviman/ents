@@ -24,6 +24,7 @@
           mold
           trunk
           butler
+          binaryen
         ];
         appNativeBuildInputs = with pkgs; [
           pkg-config
