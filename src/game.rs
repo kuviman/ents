@@ -39,14 +39,14 @@ impl Plugin for GamePlugin {
         );
         app.add_systems(
             Update,
-            (place_minion, cancel_placing).run_if(|state: Res<State<PlayerState>>| {
+            (place_ent, cancel_placing).run_if(|state: Res<State<PlayerState>>| {
                 matches!(state.get(), PlayerState::Placing(..))
             }),
         );
         app.insert_resource(GlobalPathfinding {
             closest_harvest: default(),
         });
-        app.add_systems(Update, (pathfind, minion_movement, minion_harvest));
+        app.add_systems(Update, (pathfind, ent_movement_to_harvest, ent_harvest));
         app.add_systems(Update, update_transforms);
         app.add_systems(Update, update_movement);
         app.add_state::<PlayerState>();
@@ -90,22 +90,39 @@ fn generate_chunks(mut events: EventReader<crate::chunks::GenerateChunk>, mut co
 #[derive(Component)]
 struct CanHavest;
 
-fn minion_harvest(
-    minions: Query<&Pos, (With<CanHavest>, With<Idle>)>,
-    harvestables: Query<&Harvestable>,
+#[derive(Component)]
+struct Inventory {
+    current: i32,
+    max: i32,
+}
+
+#[derive(Component)]
+struct Storing;
+
+fn ent_harvest(
+    mut ents: Query<
+        (Entity, &Pos, &mut Inventory),
+        (With<CanHavest>, With<Idle>, Without<Storing>),
+    >,
+    harvestables: Query<(Entity, &Harvestable)>,
     tile_map: Res<TileMap>,
-    mut money: ResMut<Money>,
     mut commands: Commands,
+    mut money: ResMut<Money>,
 ) {
-    for minion_coords in minions.iter() {
-        for dir in MINION_MOVE_DIRECTIONS {
-            let next_pos = minion_coords.0 + dir;
-            for entity in tile_map.entities_at(next_pos) {
-                if let Ok(harvestable) = harvestables.get(entity) {
-                    commands.entity(entity).despawn();
-                    money.0 += harvestable.0;
-                }
-            }
+    for (ent, ent_pos, mut inventory) in ents.iter_mut() {
+        let try_to_harvest = MOVE_DIRECTIONS
+            .into_iter()
+            .flat_map(|dir| tile_map.entities_at(ent_pos.0 + dir))
+            .filter_map(|entity| harvestables.get(entity).ok())
+            .next();
+        if let Some((entity, harvestable)) = try_to_harvest {
+            // TODO if inventory.current + harvestable.0 > inventory.max {
+            //     commands.entity(ent).insert(Storing);
+            // } else {
+            commands.entity(entity).despawn();
+            inventory.current += harvestable.0;
+            money.0 += harvestable.0;
+            // }
         }
     }
 }
@@ -115,12 +132,12 @@ fn update_movement(
     time: Res<Time>,
     mut commands: Commands,
 ) {
-    const MINION_MOVE_TIME: f32 = 0.2;
-    for (entity, mut coords, mut moving) in q.iter_mut() {
-        moving.t += time.delta_seconds() / MINION_MOVE_TIME;
+    const ENT_MOVE_TIME: f32 = 0.2;
+    for (entity, mut pos, mut moving) in q.iter_mut() {
+        moving.t += time.delta_seconds() / ENT_MOVE_TIME;
         if moving.t > 1.0 {
             commands.entity(entity).remove::<Moving>().insert(Idle);
-            coords.0 = moving.next_pos;
+            pos.0 = moving.next_pos;
         }
     }
 }
@@ -137,8 +154,8 @@ fn update_transforms(
         Or<(Changed<Pos>, Changed<Moving>, Changed<Size>)>,
     >,
 ) {
-    for (mut transform, mut sprite, grid_coords, size, moving) in q.iter_mut() {
-        let from = grid_coords.0;
+    for (mut transform, mut sprite, pos, size, moving) in q.iter_mut() {
+        let from = pos.0;
         let size = size.map_or(IVec2::splat(1), |size| size.0);
         let (to, t) = moving.map_or((from, 0.0), |moving| (moving.next_pos, moving.t));
         transform.translation = (from.as_vec2().lerp(to.as_vec2(), t) + size.as_vec2() / 2.0)
@@ -158,7 +175,7 @@ struct GlobalPathfinding {
     closest_harvest: HashMap<IVec2, ClosestHarvest>,
 }
 
-const MINION_MOVE_DIRECTIONS: [IVec2; 4] = [IVec2::X, IVec2::Y, IVec2::NEG_X, IVec2::NEG_Y];
+const MOVE_DIRECTIONS: [IVec2; 4] = [IVec2::X, IVec2::Y, IVec2::NEG_X, IVec2::NEG_Y];
 
 fn pathfind(
     mut pathfinding: ResMut<GlobalPathfinding>,
@@ -169,23 +186,23 @@ fn pathfind(
 ) {
     if q.is_empty() {
         pathfinding.closest_harvest = std::mem::take(&mut closest_harvest);
-        for coords in harvestables.iter() {
-            let coords = coords.0;
+        for pos in harvestables.iter() {
+            let pos = pos.0;
             closest_harvest.insert(
-                coords,
+                pos,
                 ClosestHarvest {
                     distance: 0,
                     ways: 1.0,
                 },
             );
-            q.push_back(coords);
+            q.push_back(pos);
         }
     }
 
     let mut iterations_left = 10000; // TODO base on time?
     while let Some(pos) = q.pop_front() {
         let current = *closest_harvest.get(&pos).unwrap();
-        for dir in MINION_MOVE_DIRECTIONS {
+        for dir in MOVE_DIRECTIONS {
             let next_pos = pos + dir;
 
             if !generated_chunks.is_generated(next_pos) {
@@ -227,8 +244,8 @@ struct Moving {
     t: f32,
 }
 
-fn minion_movement(
-    minions: Query<(Entity, &Pos), (With<CanMove>, With<Idle>)>,
+fn ent_movement_to_harvest(
+    ents: Query<(Entity, &Pos), (With<CanMove>, With<Idle>, Without<Storing>)>,
     global_pathfinding: Res<GlobalPathfinding>,
     harvestables: Query<(), With<Harvestable>>,
     tile_map: Res<TileMap>,
@@ -259,7 +276,7 @@ fn minion_movement(
 
         while let Some(pos) = q.pop_front() {
             let current = *closest_harvest.get(&pos).unwrap();
-            for dir in MINION_MOVE_DIRECTIONS {
+            for dir in MOVE_DIRECTIONS {
                 let next_pos: IVec2 = pos + dir;
 
                 if (next_pos - from).abs().max_element() > RADIUS {
@@ -288,7 +305,7 @@ fn minion_movement(
             return None;
         }
 
-        MINION_MOVE_DIRECTIONS
+        MOVE_DIRECTIONS
             .choose_weighted(&mut thread_rng(), |&dir| {
                 closest_harvest.get(&(from + dir)).map_or(0.0, |h| {
                     if h.distance != from_closest_harvest.distance - 1 {
@@ -307,7 +324,7 @@ fn minion_movement(
         if closest_harvest.distance <= 1 {
             return None;
         }
-        MINION_MOVE_DIRECTIONS
+        MOVE_DIRECTIONS
             .choose_weighted(&mut thread_rng(), |&dir| {
                 global_pathfinding
                     .closest_harvest
@@ -324,12 +341,12 @@ fn minion_movement(
             .copied()
     };
 
-    for (entity, minion_pos) in minions.iter() {
-        if let Some(dir) = local_pathfind(minion_pos.0).or_else(|| global_pathfind(minion_pos.0)) {
+    for (entity, ent_pos) in ents.iter() {
+        if let Some(dir) = local_pathfind(ent_pos.0).or_else(|| global_pathfind(ent_pos.0)) {
             commands
                 .entity(entity)
                 .insert(Moving {
-                    next_pos: minion_pos.0 + dir,
+                    next_pos: ent_pos.0 + dir,
                     t: 0.0,
                 })
                 .remove::<Idle>();
@@ -337,7 +354,7 @@ fn minion_movement(
     }
 }
 
-fn place_minion(
+fn place_ent(
     cursor: Query<&cursor::WorldPos>,
     input: Res<Input<MouseButton>>,
     keyboard: Res<Input<KeyCode>>,
@@ -368,6 +385,7 @@ fn place_minion(
                     },
                     Pos(pos),
                     CanMove,
+                    Inventory { current: 0, max: 1 },
                     Idle,
                     CanHavest,
                 ));
@@ -537,8 +555,8 @@ fn hover_pixel(
     let Ok(cursor) = cursor.get_single() else {
         return;
     };
-    let cursor_grid_coords = cursor.0.floor().as_ivec2();
-    for entity in tile_map.entities_at(cursor_grid_coords) {
+    let cursor_pos = cursor.0.floor().as_ivec2();
+    for entity in tile_map.entities_at(cursor_pos) {
         commands.entity(entity).try_insert(Hovered);
     }
 }

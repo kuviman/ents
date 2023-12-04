@@ -56,7 +56,7 @@ fn update_tile_map(
             }
         }
     }
-    for (entity, coords, size) in q.iter() {
+    for (entity, pos, size) in q.iter() {
         let size = size.map_or(IVec2::splat(1), |size| size.0);
         if let Some(&(prev_pos, prev_size)) = tile_map.prev.get(&entity) {
             for dx in 0..prev_size.x {
@@ -73,11 +73,11 @@ fn update_tile_map(
             for dy in 0..size.y {
                 tile_map
                     .entities_by_tile
-                    .entry(coords.0 + IVec2::new(dx, dy))
+                    .entry(pos.0 + IVec2::new(dx, dy))
                     .or_default()
                     .insert(entity);
             }
         }
-        tile_map.prev.insert(entity, (coords.0, size));
+        tile_map.prev.insert(entity, (pos.0, size));
     }
 }
