@@ -19,7 +19,7 @@ impl Plugin for GamePlugin {
         app.insert_resource(EntCosts({
             let mut costs = HashMap::new();
             costs.insert(EntType::Harvester, 5);
-            costs.insert(EntType::Base, 7);
+            costs.insert(EntType::House, 30);
             costs
         }));
 
@@ -30,7 +30,7 @@ impl Plugin for GamePlugin {
         app.add_systems(Startup, setup_camera);
         // app.add_systems(Startup, spawn_a_LOT_of_entities);
         app.insert_resource(Money(0));
-        app.add_systems(Update, update_money_text);
+        app.add_systems(Update, (update_money_text, update_population_text));
         app.add_systems(Update, scale_hovered);
         app.add_systems(
             Update,
@@ -60,6 +60,9 @@ impl Plugin for GamePlugin {
     }
 }
 
+#[derive(Component)]
+struct ProvidePopulation(usize);
+
 fn ent_types(q: Query<(Entity, &EntType), Added<EntType>>, mut commands: Commands) {
     for (entity, ent_type) in q.iter() {
         match ent_type {
@@ -76,6 +79,7 @@ fn ent_types(q: Query<(Entity, &EntType), Added<EntType>>, mut commands: Command
                     Inventory { current: 0, max: 1 },
                     Idle,
                     CanHavest,
+                    UsesPopulation,
                     Harvesting,
                 ));
             }
@@ -90,6 +94,20 @@ fn ent_types(q: Query<(Entity, &EntType), Added<EntType>>, mut commands: Command
                     },
                     Size(IVec2::splat(3)),
                     Storage,
+                    ProvidePopulation(5),
+                ));
+            }
+            EntType::House => {
+                commands.entity(entity).insert((
+                    SpriteBundle {
+                        sprite: Sprite {
+                            color: Color::PURPLE,
+                            ..default()
+                        },
+                        ..default()
+                    },
+                    Size(IVec2::splat(2)),
+                    ProvidePopulation(5),
                 ));
             }
         }
@@ -179,7 +197,7 @@ fn ent_harvest(
         (Entity, &Pos, &mut Inventory),
         (With<CanHavest>, With<Idle>, With<Harvesting>),
     >,
-    harvestables: Query<(Entity, &Harvestable)>,
+    mut harvestables: Query<(Entity, &mut Harvestable)>,
     tile_map: Res<TileMap>,
     mut commands: Commands,
 ) {
@@ -187,15 +205,20 @@ fn ent_harvest(
         let try_to_harvest = MOVE_DIRECTIONS
             .into_iter()
             .flat_map(|dir| tile_map.entities_at(ent_pos.0 + dir))
-            .filter_map(|entity| harvestables.get(entity).ok())
-            .next();
-        if let Some((entity, harvestable)) = try_to_harvest {
-            if inventory.current + harvestable.0 > inventory.max {
-                commands.entity(ent).insert(Storing).remove::<Harvesting>();
-            } else {
-                commands.entity(entity).despawn();
-                inventory.current += harvestable.0;
+            .find(|&entity| harvestables.get(entity).is_ok());
+        let try_to_harvest = try_to_harvest.map(|entity| harvestables.get_mut(entity).unwrap());
+        if let Some((entity, mut harvestable)) = try_to_harvest {
+            if harvestable.0 > 0 && inventory.current < inventory.max {
+                harvestable.0 -= 1;
+                inventory.current += 1;
+                if harvestable.0 == 0 {
+                    commands.entity(entity).despawn();
+                    inventory.current += harvestable.0;
+                }
             }
+        }
+        if inventory.current >= inventory.max {
+            commands.entity(ent).insert(Storing).remove::<Harvesting>();
         }
     }
 }
@@ -224,7 +247,13 @@ fn update_transforms(
             Option<&Size>,
             Option<&Moving>,
         ),
-        Or<(Changed<Pos>, Changed<Moving>, Changed<Size>)>,
+        Or<(
+            Changed<Pos>,
+            Changed<Moving>,
+            Changed<Size>,
+            Added<Sprite>,
+            Added<Transform>,
+        )>,
     >,
 ) {
     for (mut transform, mut sprite, pos, size, moving) in q.iter_mut() {
@@ -314,16 +343,36 @@ enum PlayerState {
 #[derive(Resource)]
 struct EntCosts(HashMap<EntType, i32>);
 
+#[derive(Component)]
+struct UsesPopulation;
+
 fn disable_buttons(
     mut buttons: Query<(&mut buttons::Disabled, &ButtonAction)>,
     money: Res<Money>,
     costs: Res<EntCosts>,
+    population_providers: Query<&ProvidePopulation>,
+    population_users: Query<&UsesPopulation>,
 ) {
+    let max_population: usize = population_providers
+        .iter()
+        .map(|population| population.0)
+        .sum();
+    let current_population = population_users.iter().count();
     for (mut disabled, action) in buttons.iter_mut() {
-        disabled.0 = !match action {
+        match action {
             ButtonAction::Spawn(typ) => match costs.0.get(typ) {
-                Some(&cost) => cost <= money.0,
-                None => true,
+                Some(&cost) => {
+                    let has_money = cost <= money.0;
+
+                    let need_population = match typ {
+                        EntType::Harvester => 1,
+                        _ => 0,
+                    };
+                    let has_population = need_population == 0
+                        || current_population + need_population <= max_population;
+                    disabled.0 = !(has_money && has_population);
+                }
+                None => disabled.0 = true,
             },
         };
     }
@@ -346,6 +395,7 @@ fn button_actions(
 enum EntType {
     Harvester,
     Base,
+    House,
 }
 
 #[derive(Debug, Event, Component, Copy, Clone)]
@@ -358,6 +408,24 @@ fn update_money_text(mut money_text: Query<&mut Text, With<MoneyText>>, money: R
         money_text.sections[0].value = format!("MONEY: {}", money.0);
     }
 }
+
+fn update_population_text(
+    mut text: Query<&mut Text, With<PopulationText>>,
+    population_providers: Query<&ProvidePopulation>,
+    population_users: Query<&UsesPopulation>,
+) {
+    let max: usize = population_providers
+        .iter()
+        .map(|population| population.0)
+        .sum();
+    let current = population_users.iter().count();
+    for mut money_text in text.iter_mut() {
+        money_text.sections[0].value = format!("POPULATION: {current}/{max}");
+    }
+}
+
+#[derive(Component)]
+struct PopulationText;
 
 #[derive(Component)]
 struct MoneyText;
@@ -378,7 +446,17 @@ fn setup_ui(mut commands: Commands) {
             ..default()
         })
         .with_children(|root| {
-            root.spawn((TextBundle::from_section("$$$", default()), MoneyText));
+            root.spawn(NodeBundle {
+                style: Style {
+                    flex_direction: FlexDirection::Column,
+                    ..default()
+                },
+                ..default()
+            })
+            .with_children(|info| {
+                info.spawn((TextBundle::from_section("$$$", default()), MoneyText));
+                info.spawn((TextBundle::from_section("POP", default()), PopulationText));
+            });
             root.spawn(NodeBundle {
                 style: Style {
                     width: Val::Percent(100.0),
@@ -390,7 +468,7 @@ fn setup_ui(mut commands: Commands) {
                 ..default()
             })
             .with_children(|bottom| {
-                for typ in [EntType::Harvester] {
+                for typ in [EntType::Harvester, EntType::House] {
                     bottom
                         .spawn((
                             ButtonBundle {
