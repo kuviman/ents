@@ -6,6 +6,7 @@ mod camera_controls;
 mod chunks;
 mod cursor;
 mod game;
+mod pathfind;
 mod tile_map;
 mod ui;
 
@@ -34,6 +35,7 @@ fn main() {
             chunks::Plugin,
             camera_controls::Plugin,
             tile_map::Plugin,
+            pathfind::Plugin,
         ))
         .run();
 }

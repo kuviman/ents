@@ -1,15 +1,14 @@
-use std::collections::VecDeque;
-
 use bevy::{prelude::*, utils::HashMap};
-use rand::{seq::SliceRandom, thread_rng, Rng};
+use rand::{thread_rng, Rng};
 
 use crate::{
-    buttons,
-    chunks::GeneratedChunks,
-    cursor,
+    buttons, cursor,
+    pathfind::{AppExt, Pathfinding},
     tile_map::{Pos, Size, TileMap},
     ui,
 };
+
+pub const MOVE_DIRECTIONS: [IVec2; 4] = [IVec2::X, IVec2::Y, IVec2::NEG_X, IVec2::NEG_Y];
 
 pub struct GamePlugin;
 
@@ -43,10 +42,8 @@ impl Plugin for GamePlugin {
                 matches!(state.get(), PlayerState::Placing(..))
             }),
         );
-        app.insert_resource(GlobalPathfinding {
-            closest_harvest: default(),
-        });
-        app.add_systems(Update, (pathfind, ent_movement_to_harvest, ent_harvest));
+        app.register_pathfinding_towards::<Harvestable>();
+        app.add_systems(Update, (ent_movement_to_harvest, ent_harvest));
         app.add_systems(Update, update_transforms);
         app.add_systems(Update, update_movement);
         app.add_state::<PlayerState>();
@@ -164,74 +161,6 @@ fn update_transforms(
     }
 }
 
-#[derive(Copy, Clone, Debug)]
-struct ClosestHarvest {
-    distance: u32,
-    ways: f64,
-}
-
-#[derive(Resource)]
-struct GlobalPathfinding {
-    closest_harvest: HashMap<IVec2, ClosestHarvest>,
-}
-
-const MOVE_DIRECTIONS: [IVec2; 4] = [IVec2::X, IVec2::Y, IVec2::NEG_X, IVec2::NEG_Y];
-
-fn pathfind(
-    mut pathfinding: ResMut<GlobalPathfinding>,
-    harvestables: Query<&Pos, With<Harvestable>>,
-    mut closest_harvest: Local<HashMap<IVec2, ClosestHarvest>>,
-    generated_chunks: Res<GeneratedChunks>,
-    mut q: Local<VecDeque<IVec2>>,
-) {
-    if q.is_empty() {
-        pathfinding.closest_harvest = std::mem::take(&mut closest_harvest);
-        for pos in harvestables.iter() {
-            let pos = pos.0;
-            closest_harvest.insert(
-                pos,
-                ClosestHarvest {
-                    distance: 0,
-                    ways: 1.0,
-                },
-            );
-            q.push_back(pos);
-        }
-    }
-
-    let mut iterations_left = 10000; // TODO base on time?
-    while let Some(pos) = q.pop_front() {
-        let current = *closest_harvest.get(&pos).unwrap();
-        for dir in MOVE_DIRECTIONS {
-            let next_pos = pos + dir;
-
-            if !generated_chunks.is_generated(next_pos) {
-                continue;
-            }
-            match closest_harvest.entry(next_pos) {
-                bevy::utils::hashbrown::hash_map::Entry::Occupied(mut entry) => {
-                    let that = entry.get_mut();
-                    if that.distance == current.distance + 1 {
-                        that.ways += current.ways;
-                    }
-                }
-                bevy::utils::hashbrown::hash_map::Entry::Vacant(entry) => {
-                    entry.insert(ClosestHarvest {
-                        distance: current.distance + 1,
-                        ways: current.ways,
-                    });
-                    q.push_back(next_pos);
-                }
-            }
-        }
-
-        iterations_left -= 1;
-        if iterations_left == 0 {
-            break;
-        }
-    }
-}
-
 #[derive(Component)]
 struct Idle;
 
@@ -246,110 +175,20 @@ struct Moving {
 
 fn ent_movement_to_harvest(
     ents: Query<(Entity, &Pos), (With<CanMove>, With<Idle>, Without<Storing>)>,
-    global_pathfinding: Res<GlobalPathfinding>,
-    harvestables: Query<(), With<Harvestable>>,
-    tile_map: Res<TileMap>,
+    pathfinding: Res<Pathfinding<Harvestable>>,
     mut commands: Commands,
 ) {
-    let local_pathfind = |from: IVec2| -> Option<IVec2> {
-        let mut closest_harvest: HashMap<IVec2, ClosestHarvest> = default();
-        let mut q = VecDeque::new();
-
-        const RADIUS: i32 = 10;
-        for x in from.x - RADIUS..=from.x + RADIUS {
-            for y in from.y - RADIUS..=from.y + RADIUS {
-                let pos = IVec2::new(x, y);
-                for entity in tile_map.entities_at(pos) {
-                    if harvestables.get(entity).is_ok() {
-                        closest_harvest.insert(
-                            pos,
-                            ClosestHarvest {
-                                distance: 0,
-                                ways: 1.0,
-                            },
-                        );
-                        q.push_back(pos);
-                    }
-                }
-            }
-        }
-
-        while let Some(pos) = q.pop_front() {
-            let current = *closest_harvest.get(&pos).unwrap();
-            for dir in MOVE_DIRECTIONS {
-                let next_pos: IVec2 = pos + dir;
-
-                if (next_pos - from).abs().max_element() > RADIUS {
-                    continue;
-                }
-                match closest_harvest.entry(next_pos) {
-                    bevy::utils::hashbrown::hash_map::Entry::Occupied(mut entry) => {
-                        let that = entry.get_mut();
-                        if that.distance == current.distance + 1 {
-                            that.ways += current.ways;
-                        }
-                    }
-                    bevy::utils::hashbrown::hash_map::Entry::Vacant(entry) => {
-                        entry.insert(ClosestHarvest {
-                            distance: current.distance + 1,
-                            ways: current.ways,
-                        });
-                        q.push_back(next_pos);
-                    }
-                }
-            }
-        }
-
-        let from_closest_harvest = closest_harvest.get(&from)?;
-        if from_closest_harvest.distance <= 1 {
-            return None;
-        }
-
-        MOVE_DIRECTIONS
-            .choose_weighted(&mut thread_rng(), |&dir| {
-                closest_harvest.get(&(from + dir)).map_or(0.0, |h| {
-                    if h.distance != from_closest_harvest.distance - 1 {
-                        0.0
-                    } else {
-                        h.ways
-                    }
-                })
-            })
-            .ok()
-            .copied()
-    };
-
-    let global_pathfind = |pos| {
-        let closest_harvest = global_pathfinding.closest_harvest.get(&pos)?;
-        if closest_harvest.distance <= 1 {
-            return None;
-        }
-        MOVE_DIRECTIONS
-            .choose_weighted(&mut thread_rng(), |&dir| {
-                global_pathfinding
-                    .closest_harvest
-                    .get(&(pos + dir))
-                    .map_or(0.0, |h| {
-                        if h.distance != closest_harvest.distance - 1 {
-                            0.0
-                        } else {
-                            h.ways
-                        }
-                    })
-            })
-            .ok()
-            .copied()
-    };
-
     for (entity, ent_pos) in ents.iter() {
-        if let Some(dir) = local_pathfind(ent_pos.0).or_else(|| global_pathfind(ent_pos.0)) {
-            commands
-                .entity(entity)
-                .insert(Moving {
-                    next_pos: ent_pos.0 + dir,
-                    t: 0.0,
-                })
-                .remove::<Idle>();
+        if let Some(dir) = pathfinding.pathfind(ent_pos.0) {
+            if dir.distance > 1 {
+                commands
+                    .entity(entity)
+                    .insert(Moving {
+                        next_pos: ent_pos.0 + dir.dir,
+                        t: 0.0,
+                    })
+                    .remove::<Idle>();
+            }
         }
     }
 }
