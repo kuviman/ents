@@ -3,7 +3,7 @@ use rand::{thread_rng, Rng};
 
 use crate::{
     buttons, cursor,
-    pathfind::{AppExt, Pathfinding},
+    pathfind::{AppExt, Blocking, Pathfinding},
     tile_map::{Pos, Size, TileMap},
     ui,
 };
@@ -94,6 +94,7 @@ fn ent_types(q: Query<(Entity, &EntType), Added<EntType>>, mut commands: Command
                     },
                     Size(IVec2::splat(3)),
                     Storage,
+                    Blocking,
                     ProvidePopulation(5),
                 ));
             }
@@ -106,6 +107,7 @@ fn ent_types(q: Query<(Entity, &EntType), Added<EntType>>, mut commands: Command
                         },
                         ..default()
                     },
+                    Blocking,
                     Size(IVec2::splat(2)),
                     ProvidePopulation(5),
                 ));
@@ -147,6 +149,7 @@ fn generate_chunks(mut events: EventReader<crate::chunks::GenerateChunk>, mut co
                         Pos(IVec2::new(x, y)),
                         ScaleOnHover,
                         Harvestable(1),
+                        Blocking,
                     ));
                 }
             }

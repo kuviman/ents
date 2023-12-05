@@ -98,9 +98,13 @@ fn detect_map_updates<T: Component>(
     mut data: ResMut<Pathfinding<T>>,
     map_updates: Query<
         (Entity, &Pos, Option<&Size>),
-        (Or<(Changed<Pos>, Changed<Size>, Added<T>)>, With<T>),
+        (
+            Or<(Changed<Pos>, Changed<Size>, Added<T>, Changed<Blocking>)>,
+            Or<(With<T>, With<Blocking>)>,
+        ),
     >,
     mut removed: RemovedComponents<T>,
+    mut removed_blocking: RemovedComponents<Blocking>,
     mut prev: Local<HashMap<Entity, (IVec2, IVec2)>>,
 ) {
     let mut update_at = |pos: IVec2, size: IVec2| {
@@ -113,6 +117,11 @@ fn detect_map_updates<T: Component>(
             }
         }
     };
+    for entity in removed.read().chain(removed_blocking.read()) {
+        if let Some((prev_pos, prev_size)) = prev.remove(&entity) {
+            update_at(prev_pos, prev_size);
+        }
+    }
     for (entity, pos, size) in map_updates.iter() {
         if let Some(&(prev_pos, prev_size)) = prev.get(&entity) {
             update_at(prev_pos, prev_size);
@@ -120,11 +129,6 @@ fn detect_map_updates<T: Component>(
         let size = size.map_or(IVec2::splat(1), |size| size.0);
         update_at(pos.0, size);
         prev.insert(entity, (pos.0, size));
-    }
-    for entity in removed.read() {
-        if let Some((prev_pos, prev_size)) = prev.remove(&entity) {
-            update_at(prev_pos, prev_size);
-        }
     }
 }
 
@@ -140,8 +144,12 @@ fn despawn_debug(mut q: Query<(Entity, &mut DebugThing)>, mut commands: Commands
     }
 }
 
+#[derive(Component)]
+pub struct Blocking;
+
 fn pathfind_iteration<T: Component>(
-    entities: Query<(), With<T>>,
+    searching_for: Query<(), With<T>>,
+    blocking: Query<(), With<Blocking>>,
     tile_map: Res<TileMap>,
     mut data: ResMut<Pathfinding<T>>,
     generated_chunks: Res<GeneratedChunks>,
@@ -151,12 +159,17 @@ fn pathfind_iteration<T: Component>(
     while let Some(update) = data.updates.pop() {
         let new_closest = if tile_map
             .entities_at(update.pos)
-            .any(|entity| entities.contains(entity))
+            .any(|entity| searching_for.contains(entity))
         {
             Some(Closest {
                 distance: 0,
                 ways: 1.0,
             })
+        } else if tile_map
+            .entities_at(update.pos)
+            .any(|entity| blocking.contains(entity))
+        {
+            None
         } else {
             let mut closest = None;
             for dir in MOVE_DIRECTIONS {
@@ -165,7 +178,7 @@ fn pathfind_iteration<T: Component>(
                     let do_replace = match &mut closest {
                         Some(Closest { distance, ways }) => {
                             if *distance == next_closest.distance + 1 {
-                                *ways += next_closest.ways;
+                                *ways = (*ways + next_closest.ways).min(1e5);
                                 false
                             } else {
                                 *distance > next_closest.distance + 1
@@ -179,6 +192,12 @@ fn pathfind_iteration<T: Component>(
                             ways: next_closest.ways,
                         });
                     };
+                }
+            }
+            if let Some(c) = &mut closest {
+                // TODO ??
+                if c.distance == 1000 {
+                    closest = None;
                 }
             }
             closest
