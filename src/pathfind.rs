@@ -178,20 +178,22 @@ fn pathfind_iteration<T: Component>(
 
         let old = data.closest.get(&update.pos);
         if old != new_closest.as_ref() {
-            commands.spawn((
-                Text2dBundle {
-                    text: Text::from_section(
-                        new_closest
-                            .as_ref()
-                            .map_or("none".to_owned(), |closest| closest.distance.to_string()),
-                        default(),
-                    ),
-                    transform: Transform::from_translation(update.pos.as_vec2().extend(1.0))
-                        .with_scale(Vec3::splat(0.1)),
-                    ..default()
-                },
-                DebugThing(0.0),
-            ));
+            if false {
+                commands.spawn((
+                    Text2dBundle {
+                        text: Text::from_section(
+                            new_closest
+                                .as_ref()
+                                .map_or("none".to_owned(), |closest| closest.distance.to_string()),
+                            default(),
+                        ),
+                        transform: Transform::from_translation(update.pos.as_vec2().extend(1.0))
+                            .with_scale(Vec3::splat(0.1)),
+                        ..default()
+                    },
+                    DebugThing(0.0),
+                ));
+            }
             match new_closest {
                 Some(new) => {
                     data.closest.insert(update.pos, new);
