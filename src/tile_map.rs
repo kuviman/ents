@@ -38,7 +38,7 @@ impl TileMap {
 }
 
 fn update_tile_map(
-    q: Query<(Entity, &Pos, Option<&Size>), Changed<Pos>>,
+    q: Query<(Entity, &Pos, Option<&Size>), Or<(Changed<Pos>, Changed<Size>)>>,
     mut tile_map: ResMut<TileMap>,
     mut removed: RemovedComponents<Pos>,
 ) {

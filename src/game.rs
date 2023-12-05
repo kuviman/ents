@@ -53,9 +53,46 @@ impl Plugin for GamePlugin {
                 ent_store,
             ),
         );
+        app.add_systems(Update, ent_types);
         app.add_systems(Update, update_transforms);
         app.add_systems(Update, update_movement);
         app.add_state::<PlayerState>();
+    }
+}
+
+fn ent_types(q: Query<(Entity, &EntType), Added<EntType>>, mut commands: Commands) {
+    for (entity, ent_type) in q.iter() {
+        match ent_type {
+            EntType::Harvester => {
+                commands.entity(entity).insert((
+                    SpriteBundle {
+                        sprite: Sprite {
+                            color: Color::BLACK,
+                            ..default()
+                        },
+                        ..default()
+                    },
+                    CanMove,
+                    Inventory { current: 0, max: 1 },
+                    Idle,
+                    CanHavest,
+                    Harvesting,
+                ));
+            }
+            EntType::Base => {
+                commands.entity(entity).insert((
+                    SpriteBundle {
+                        sprite: Sprite {
+                            color: Color::RED,
+                            ..default()
+                        },
+                        ..default()
+                    },
+                    Size(IVec2::splat(3)),
+                    Storage,
+                ));
+            }
+        }
     }
 }
 
@@ -63,37 +100,42 @@ impl Plugin for GamePlugin {
 struct Storage;
 
 fn generate_chunks(mut events: EventReader<crate::chunks::GenerateChunk>, mut commands: Commands) {
-    let mut ents = Vec::new();
+    let mut pixels = Vec::new();
 
     for event in events.read() {
         let rect = event.rect();
         for x in rect.min.x..rect.max.x {
             for y in rect.min.y..rect.max.y {
-                ents.push((
-                    SpriteBundle {
-                        sprite: Sprite {
-                            color: Color::hsl(
-                                thread_rng().gen_range({
-                                    let off = 20.0;
-                                    120.0 - off..120.0 + off
-                                }),
-                                0.7,
-                                0.2,
-                            ),
-                            custom_size: Some(Vec2::splat(1.0)),
+                if x == -1 && y == -1 {
+                    commands.spawn((Pos(IVec2::new(x, y)), EntType::Base));
+                }
+                if x * x + y * y > 10 {
+                    pixels.push((
+                        SpriteBundle {
+                            sprite: Sprite {
+                                color: Color::hsl(
+                                    thread_rng().gen_range({
+                                        let off = 20.0;
+                                        120.0 - off..120.0 + off
+                                    }),
+                                    0.7,
+                                    0.2,
+                                ),
+                                custom_size: Some(Vec2::splat(1.0)),
+                                ..default()
+                            },
                             ..default()
                         },
-                        ..default()
-                    },
-                    Pos(IVec2::new(x, y)),
-                    ScaleOnHover,
-                    Harvestable(1),
-                ));
+                        Pos(IVec2::new(x, y)),
+                        ScaleOnHover,
+                        Harvestable(1),
+                    ));
+                }
             }
         }
     }
 
-    commands.spawn_batch(ents);
+    commands.spawn_batch(pixels);
 }
 
 #[derive(Component)]
@@ -246,40 +288,7 @@ fn place_ent(
         // TODO check that empty
 
         money.0 -= costs.0[&ent_type];
-        match ent_type {
-            EntType::Harvester => {
-                commands.spawn((
-                    SpriteBundle {
-                        sprite: Sprite {
-                            color: Color::BLACK,
-                            ..default()
-                        },
-                        ..default()
-                    },
-                    Pos(pos),
-                    CanMove,
-                    Inventory { current: 0, max: 1 },
-                    Idle,
-                    CanHavest,
-                    Harvesting,
-                ));
-            }
-            EntType::Base => {
-                commands.spawn((
-                    SpriteBundle {
-                        sprite: Sprite {
-                            color: Color::RED,
-                            ..default()
-                        },
-                        ..default()
-                    },
-                    Pos(pos),
-                    Size(IVec2::splat(3)),
-                    Storage,
-                    Idle,
-                ));
-            }
-        }
+        commands.spawn((Pos(pos), ent_type));
         if !keyboard.pressed(KeyCode::ShiftLeft) {
             player_state.set(PlayerState::Normal);
         }
@@ -333,7 +342,7 @@ fn button_actions(
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Copy, Clone, Hash)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone, Hash, Component)]
 enum EntType {
     Harvester,
     Base,
@@ -381,7 +390,7 @@ fn setup_ui(mut commands: Commands) {
                 ..default()
             })
             .with_children(|bottom| {
-                for typ in [EntType::Harvester, EntType::Base] {
+                for typ in [EntType::Harvester] {
                     bottom
                         .spawn((
                             ButtonBundle {
