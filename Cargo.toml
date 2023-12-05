@@ -24,4 +24,5 @@ dev = ["bevy/dynamic_linking"]
 
 [dependencies]
 bevy = "0.12"
+noise = "0.8.2"
 rand = "0.8"

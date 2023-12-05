@@ -12,9 +12,21 @@ pub const MOVE_DIRECTIONS: [IVec2; 4] = [IVec2::X, IVec2::Y, IVec2::NEG_X, IVec2
 
 pub struct GamePlugin;
 
+#[derive(Resource)]
+struct Noise(noise::OpenSimplex);
+
+impl Noise {
+    fn get(&self, pos: Vec2) -> f32 {
+        noise::NoiseFn::get(&self.0, [pos.x as f64, pos.y as f64]) as f32
+    }
+}
+
 impl Plugin for GamePlugin {
     fn build(&self, app: &mut App) {
+        app.insert_resource(Noise(noise::OpenSimplex::new(thread_rng().gen())));
         app.add_systems(Update, generate_chunks);
+
+        app.add_systems(Update, harvestable_color);
 
         app.insert_resource(EntCosts({
             let mut costs = HashMap::new();
@@ -62,6 +74,14 @@ impl Plugin for GamePlugin {
 
 #[derive(Component)]
 struct ProvidePopulation(usize);
+
+fn harvestable_color(mut q: Query<(&mut Sprite, &Harvestable), Changed<Harvestable>>) {
+    for (mut sprite, harvestable) in q.iter_mut() {
+        sprite
+            .color
+            .set_a(0.8 + 0.2 * (harvestable.0 as f32 / 10.0).min(1.0));
+    }
+}
 
 fn ent_types(q: Query<(Entity, &EntType), Added<EntType>>, mut commands: Commands) {
     for (entity, ent_type) in q.iter() {
@@ -119,17 +139,22 @@ fn ent_types(q: Query<(Entity, &EntType), Added<EntType>>, mut commands: Command
 #[derive(Component)]
 struct Storage;
 
-fn generate_chunks(mut events: EventReader<crate::chunks::GenerateChunk>, mut commands: Commands) {
+fn generate_chunks(
+    noise: Res<Noise>,
+    mut events: EventReader<crate::chunks::GenerateChunk>,
+    mut commands: Commands,
+) {
     let mut pixels = Vec::new();
 
     for event in events.read() {
         let rect = event.rect();
         for x in rect.min.x..rect.max.x {
             for y in rect.min.y..rect.max.y {
+                let pos = IVec2::new(x, y);
                 if x == -1 && y == -1 {
-                    commands.spawn((Pos(IVec2::new(x, y)), EntType::Base));
+                    commands.spawn((Pos(pos), EntType::Base));
                 }
-                if x * x + y * y > 10 {
+                if pos.length_squared() > 10 {
                     pixels.push((
                         SpriteBundle {
                             sprite: Sprite {
@@ -146,9 +171,14 @@ fn generate_chunks(mut events: EventReader<crate::chunks::GenerateChunk>, mut co
                             },
                             ..default()
                         },
-                        Pos(IVec2::new(x, y)),
+                        Pos(pos),
                         ScaleOnHover,
-                        Harvestable(1),
+                        Harvestable(
+                            (Vec2::new(x as f32, y as f32).length() / 20.0
+                                + noise.get(pos.as_vec2() / 5.0) * 5.0)
+                                .max(0.0) as i32
+                                + 1,
+                        ),
                         Blocking,
                     ));
                 }
