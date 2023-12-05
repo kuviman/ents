@@ -6,7 +6,7 @@ use rand::{seq::SliceRandom, thread_rng};
 use crate::{
     chunks::GeneratedChunks,
     game::MOVE_DIRECTIONS,
-    tile_map::{Pos, TileMap},
+    tile_map::{Pos, Size, TileMap},
 };
 
 pub struct Plugin;
@@ -82,12 +82,6 @@ struct Update {
     pos: IVec2,
 }
 
-impl Update {
-    fn new(pos: IVec2) -> Self {
-        Self { distance: 0, pos }
-    }
-}
-
 impl PartialOrd for Update {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         Some(self.cmp(other))
@@ -102,20 +96,34 @@ impl Ord for Update {
 
 fn detect_map_updates<T: Component>(
     mut data: ResMut<Pathfinding<T>>,
-    map_updates: Query<(Entity, &Pos), (Or<(Changed<Pos>, Added<T>)>, With<T>)>,
+    map_updates: Query<
+        (Entity, &Pos, Option<&Size>),
+        (Or<(Changed<Pos>, Changed<Size>, Added<T>)>, With<T>),
+    >,
     mut removed: RemovedComponents<T>,
-    mut prev_pos: Local<HashMap<Entity, IVec2>>,
+    mut prev: Local<HashMap<Entity, (IVec2, IVec2)>>,
 ) {
-    for (entity, pos) in map_updates.iter() {
-        data.updates.push(Update::new(pos.0));
-        if let Some(&prev_pos) = prev_pos.get(&entity) {
-            data.updates.push(Update::new(prev_pos));
+    let mut update_at = |pos: IVec2, size: IVec2| {
+        for x in 0..size.x {
+            for y in 0..size.y {
+                data.updates.push(Update {
+                    distance: 0,
+                    pos: pos + IVec2::new(x, y),
+                });
+            }
         }
-        prev_pos.insert(entity, pos.0);
+    };
+    for (entity, pos, size) in map_updates.iter() {
+        if let Some(&(prev_pos, prev_size)) = prev.get(&entity) {
+            update_at(prev_pos, prev_size);
+        }
+        let size = size.map_or(IVec2::splat(1), |size| size.0);
+        update_at(pos.0, size);
+        prev.insert(entity, (pos.0, size));
     }
     for entity in removed.read() {
-        if let Some(prev_pos) = prev_pos.remove(&entity) {
-            data.updates.push(Update::new(prev_pos));
+        if let Some((prev_pos, prev_size)) = prev.remove(&entity) {
+            update_at(prev_pos, prev_size);
         }
     }
 }

@@ -43,12 +43,24 @@ impl Plugin for GamePlugin {
             }),
         );
         app.register_pathfinding_towards::<Harvestable>();
-        app.add_systems(Update, (ent_movement_to_harvest, ent_harvest));
+        app.register_pathfinding_towards::<Storage>();
+        app.add_systems(
+            Update,
+            (
+                ent_movement::<Harvesting, Harvestable>,
+                ent_movement::<Storing, Storage>,
+                ent_harvest,
+                ent_store,
+            ),
+        );
         app.add_systems(Update, update_transforms);
         app.add_systems(Update, update_movement);
         app.add_state::<PlayerState>();
     }
 }
+
+#[derive(Component)]
+struct Storage;
 
 fn generate_chunks(mut events: EventReader<crate::chunks::GenerateChunk>, mut commands: Commands) {
     let mut ents = Vec::new();
@@ -94,17 +106,40 @@ struct Inventory {
 }
 
 #[derive(Component)]
+struct Harvesting;
+
+#[derive(Component)]
 struct Storing;
+
+fn ent_store(
+    mut ents: Query<(Entity, &Pos, &mut Inventory), (With<Idle>, With<Storing>)>,
+    storage: Query<Entity, With<Storage>>,
+    tile_map: Res<TileMap>,
+    mut money: ResMut<Money>,
+    mut commands: Commands,
+) {
+    for (ent, ent_pos, mut inventory) in ents.iter_mut() {
+        let try_to_store = MOVE_DIRECTIONS
+            .into_iter()
+            .flat_map(|dir| tile_map.entities_at(ent_pos.0 + dir))
+            .filter_map(|entity| storage.get(entity).ok())
+            .next();
+        if let Some(_storage_entity) = try_to_store {
+            money.0 += inventory.current;
+            inventory.current = 0;
+            commands.entity(ent).remove::<Storing>().insert(Harvesting);
+        }
+    }
+}
 
 fn ent_harvest(
     mut ents: Query<
         (Entity, &Pos, &mut Inventory),
-        (With<CanHavest>, With<Idle>, Without<Storing>),
+        (With<CanHavest>, With<Idle>, With<Harvesting>),
     >,
     harvestables: Query<(Entity, &Harvestable)>,
     tile_map: Res<TileMap>,
     mut commands: Commands,
-    mut money: ResMut<Money>,
 ) {
     for (ent, ent_pos, mut inventory) in ents.iter_mut() {
         let try_to_harvest = MOVE_DIRECTIONS
@@ -113,13 +148,12 @@ fn ent_harvest(
             .filter_map(|entity| harvestables.get(entity).ok())
             .next();
         if let Some((entity, harvestable)) = try_to_harvest {
-            // TODO if inventory.current + harvestable.0 > inventory.max {
-            //     commands.entity(ent).insert(Storing);
-            // } else {
-            commands.entity(entity).despawn();
-            inventory.current += harvestable.0;
-            money.0 += harvestable.0;
-            // }
+            if inventory.current + harvestable.0 > inventory.max {
+                commands.entity(ent).insert(Storing).remove::<Harvesting>();
+            } else {
+                commands.entity(entity).despawn();
+                inventory.current += harvestable.0;
+            }
         }
     }
 }
@@ -173,9 +207,9 @@ struct Moving {
     t: f32,
 }
 
-fn ent_movement_to_harvest(
-    ents: Query<(Entity, &Pos), (With<CanMove>, With<Idle>, Without<Storing>)>,
-    pathfinding: Res<Pathfinding<Harvestable>>,
+fn ent_movement<EntState: Component, SearchingFor: Component>(
+    ents: Query<(Entity, &Pos), (With<CanMove>, With<Idle>, With<EntState>)>,
+    pathfinding: Res<Pathfinding<SearchingFor>>,
     mut commands: Commands,
 ) {
     for (entity, ent_pos) in ents.iter() {
@@ -227,6 +261,7 @@ fn place_ent(
                     Inventory { current: 0, max: 1 },
                     Idle,
                     CanHavest,
+                    Harvesting,
                 ));
             }
             EntType::Base => {
@@ -240,6 +275,7 @@ fn place_ent(
                     },
                     Pos(pos),
                     Size(IVec2::splat(3)),
+                    Storage,
                     Idle,
                 ));
             }
