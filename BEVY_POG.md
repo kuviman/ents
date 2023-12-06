@@ -1,5 +1,9 @@
 # Bevy POG
 
+## mold
+
+`mold` is faster but need to recompile from scratch after building for web
+
 ## Game template not working
 
 Web build had black screen - <https://github.com/NiklasEi/bevy_game_template/issues/84>
