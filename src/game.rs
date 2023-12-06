@@ -40,6 +40,7 @@ impl Plugin for GamePlugin {
             costs.insert(EntType::Road, 1);
             costs.insert(EntType::UpgradeInventory, 50);
             costs.insert(EntType::Storage, 100);
+            costs.insert(EntType::BuilderAcademy, 50);
             costs
         }));
 
@@ -77,11 +78,24 @@ impl Plugin for GamePlugin {
         app.add_systems(Update, update_transforms);
         app.add_systems(Update, update_movement);
 
+        app.register_pathfinding_towards::<NonEmptyStorage>();
+        app.register_pathfinding_towards::<NeedsResource>();
+        app.add_systems(
+            Update,
+            (
+                ent_movement::<TakingResource, NonEmptyStorage>,
+                ent_movement::<BringingResource, NeedsResource>,
+                take_resource,
+                bring_resource,
+                actual_building,
+            ),
+        );
+
         app.add_systems(Update, spawn_ents);
         app.add_systems(PostUpdate, ent_types);
 
         register_upgrade::<InventoryUpgrade>(app);
-        app.add_systems(Update, inventory_upgrade);
+        register_upgrade::<BuilderUpgrade>(app);
 
         app.add_state::<PlayerState>();
 
@@ -146,17 +160,36 @@ fn visualize_storage(
     }
 }
 
+#[derive(Component)]
+struct NonEmptyStorage;
+
 fn update_storages(
-    q: Query<(Entity, &Storage, Has<StorageThatHasSpace>), Changed<Storage>>,
+    q: Query<
+        (
+            Entity,
+            &Storage,
+            Has<StorageThatHasSpace>,
+            Has<NonEmptyStorage>,
+        ),
+        Changed<Storage>,
+    >,
     mut commands: Commands,
 ) {
-    for (entity, storage, had_space) in q.iter() {
+    for (entity, storage, had_space, was_non_empty) in q.iter() {
         let has_space = storage.current < storage.max;
+        let now_non_empty = storage.current != 0;
         if has_space != had_space {
             if has_space {
                 commands.entity(entity).insert(StorageThatHasSpace);
             } else {
                 commands.entity(entity).remove::<StorageThatHasSpace>();
+            }
+        }
+        if was_non_empty != now_non_empty {
+            if now_non_empty {
+                commands.entity(entity).insert(NonEmptyStorage);
+            } else {
+                commands.entity(entity).remove::<NonEmptyStorage>();
             }
         }
     }
@@ -254,13 +287,6 @@ fn stop_placing_if_not_enough_money(
     }
 }
 
-fn inventory_upgrade(mut ents: Query<(&mut Inventory, &mut Sprite), Added<InventoryUpgrade>>) {
-    for (mut inventory, mut sprite) in ents.iter_mut() {
-        inventory.max += 5;
-        sprite.color = Color::GOLD.with_l(0.1);
-    }
-}
-
 fn register_upgrade<U: Upgrade>(app: &mut App) {
     app.add_systems(
         Update,
@@ -276,6 +302,7 @@ fn register_upgrade<U: Upgrade>(app: &mut App) {
 
 trait Upgrade: Component {
     fn new() -> Self;
+    fn new_ent_type() -> EntType;
 }
 
 fn receive_upgrade<U: Upgrade>(
@@ -293,11 +320,13 @@ fn receive_upgrade<U: Upgrade>(
                 let mut upgrade = upgrade_shops.get_mut(upgrade_shop_entity).unwrap();
                 if upgrade.upgrades_left > 0 {
                     upgrade.upgrades_left -= 1;
-                    commands
-                        .entity(ent)
-                        .insert(U::new())
-                        .remove::<(GoingForUpgrade<U>, GoingForAnyUpgrade)>()
-                        .insert(Harvesting); // TODO maybe other?
+                    commands.entity(ent).despawn();
+                    commands.spawn((Pos(ent_pos.0), U::new_ent_type()));
+                    // commands
+                    //     .entity(ent)
+                    //     .insert(U::new())
+                    //     .remove::<(GoingForUpgrade<U>, GoingForAnyUpgrade)>()
+                    //     .insert(Harvesting); // TODO maybe other?
                     if upgrade.upgrades_left == 0 {
                         commands
                             .entity(upgrade_shop_entity)
@@ -423,6 +452,21 @@ impl Upgrade for InventoryUpgrade {
     fn new() -> Self {
         Self
     }
+    fn new_ent_type() -> EntType {
+        EntType::GoldHarvester
+    }
+}
+
+#[derive(Component)]
+struct BuilderUpgrade;
+
+impl Upgrade for BuilderUpgrade {
+    fn new() -> Self {
+        Self
+    }
+    fn new_ent_type() -> EntType {
+        EntType::Builder
+    }
 }
 
 #[derive(Component)]
@@ -430,6 +474,9 @@ struct GoingForAnyUpgrade;
 
 #[derive(Component)]
 struct GoingForUpgrade<T>(PhantomData<T>);
+
+#[derive(Component)]
+struct CanBuild;
 
 fn ent_types(q: Query<(Entity, &EntType), Added<EntType>>, mut commands: Commands) {
     for (entity, ent_type) in q.iter() {
@@ -457,10 +504,32 @@ fn ent_types(q: Query<(Entity, &EntType), Added<EntType>>, mut commands: Command
                     CanReceiveUpgrades,
                 ));
             }
+            EntType::GoldHarvester => {
+                commands.entity(entity).insert((
+                    CanMove,
+                    Inventory {
+                        current: 0,
+                        max: 10,
+                    },
+                    Idle,
+                    CanHavest,
+                    UsesPopulation,
+                    Harvesting,
+                ));
+            }
             EntType::UpgradeInventory => {
                 commands.entity(entity).insert((
                     Blocking,
                     CanUpgrade::<InventoryUpgrade> {
+                        upgrades_left: 5,
+                        phantom_data: PhantomData,
+                    },
+                ));
+            }
+            EntType::BuilderAcademy => {
+                commands.entity(entity).insert((
+                    Blocking,
+                    CanUpgrade::<BuilderUpgrade> {
                         upgrades_left: 5,
                         phantom_data: PhantomData,
                     },
@@ -484,6 +553,15 @@ fn ent_types(q: Query<(Entity, &EntType), Added<EntType>>, mut commands: Command
                         ent_type: EntType::Harvester,
                         amount: 5,
                     },
+                ));
+            }
+            EntType::Builder => {
+                commands.entity(entity).insert((
+                    CanMove,
+                    Idle,
+                    CanBuild,
+                    Inventory { current: 0, max: 5 },
+                    TakingResource,
                 ));
             }
         }
@@ -519,6 +597,9 @@ fn generate_chunks(
         for x in rect.min.x..rect.max.x {
             for y in rect.min.y..rect.max.y {
                 let pos = IVec2::new(x, y);
+                if (pos.x == 0 || pos.y == 0) && pos.length_squared() == 25 {
+                    commands.spawn((Pos(pos), EntType::Builder));
+                }
                 if pos == IVec2::ZERO - EntType::Base.size() / 2 {
                     commands.spawn((Pos(pos), EntType::Base));
                 }
@@ -593,6 +674,77 @@ fn ent_store(
             if inventory.current == 0 {
                 commands.entity(ent).remove::<Storing>().insert(Harvesting);
             }
+        }
+    }
+}
+
+#[derive(Component)]
+struct TakingResource;
+
+#[derive(Component)]
+struct BringingResource;
+
+fn take_resource(
+    mut ents: Query<(Entity, &Pos, &mut Inventory), (With<Idle>, With<TakingResource>)>,
+    mut storage: Query<&mut Storage>,
+    tile_map: Res<TileMap>,
+    mut commands: Commands,
+) {
+    for (ent, ent_pos, mut inventory) in ents.iter_mut() {
+        let try_to_store = MOVE_DIRECTIONS
+            .into_iter()
+            .flat_map(|dir| tile_map.entities_at(ent_pos.0 + dir))
+            .find(|&entity| storage.get(entity).is_ok());
+        if let Some(storage_entity) = try_to_store {
+            let mut storage = storage.get_mut(storage_entity).unwrap();
+            let amount_to_take = storage.current.min(inventory.max - inventory.current);
+            inventory.current += amount_to_take;
+            storage.current -= amount_to_take;
+            if inventory.current == inventory.max {
+                commands
+                    .entity(ent)
+                    .remove::<TakingResource>()
+                    .insert(BringingResource);
+            }
+        }
+    }
+}
+
+fn actual_building(
+    query: Query<(Entity, &NeedsResource, &Pos, &Size, &Placeholder), Changed<NeedsResource>>,
+    mut commands: Commands,
+) {
+    for (entity, needs, pos, size, placeholder) in query.iter() {
+        if needs.0 == 0 {
+            commands.entity(entity).despawn();
+            commands.spawn((Pos(pos.0), Size(size.0), placeholder.0));
+        }
+    }
+}
+
+fn bring_resource(
+    mut ents: Query<(Entity, &Pos, &mut Inventory), (With<Idle>, With<BringingResource>)>,
+    mut needs: Query<&mut NeedsResource>,
+    tile_map: Res<TileMap>,
+    mut commands: Commands,
+) {
+    for (ent, ent_pos, mut inventory) in ents.iter_mut() {
+        if inventory.current == 0 {
+            commands
+                .entity(ent)
+                .remove::<BringingResource>()
+                .insert(TakingResource);
+            continue;
+        }
+        let placeholder = MOVE_DIRECTIONS
+            .into_iter()
+            .flat_map(|dir| tile_map.entities_at(ent_pos.0 + dir))
+            .find(|&entity| needs.get(entity).is_ok());
+        if let Some(placeholder) = placeholder {
+            let mut need = needs.get_mut(placeholder).unwrap();
+            let amount_to_bring = need.0.min(inventory.current);
+            inventory.current -= amount_to_bring;
+            need.0 -= amount_to_bring;
         }
     }
 }
@@ -715,6 +867,12 @@ fn ent_movement<EntState: Component, SearchingFor: Component>(
     }
 }
 
+#[derive(Component)]
+struct NeedsResource(i32);
+
+#[derive(Component)]
+struct Placeholder(EntType);
+
 fn place_ent(
     input: Res<Input<MouseButton>>,
     mut commands: Commands,
@@ -734,8 +892,22 @@ fn place_ent(
         return;
     }
     if input.just_pressed(MouseButton::Left) || input.pressed(MouseButton::Left) {
-        money.0 -= costs.0[&ent_type];
-        commands.spawn((Pos(pos.0), ent_type));
+        let cost = costs.0[&ent_type];
+        money.0 -= cost;
+        commands.spawn((
+            SpriteBundle {
+                sprite: Sprite {
+                    color: ent_type.color().with_a(0.5),
+                    ..default()
+                },
+                ..default()
+            },
+            Blocking, // TODO
+            Pos(pos.0),
+            Size(ent_type.size()),
+            Placeholder(ent_type),
+            NeedsResource(cost),
+        ));
     }
 }
 
@@ -814,6 +986,9 @@ enum EntType {
     House,
     UpgradeInventory,
     Road,
+    GoldHarvester,
+    Builder,
+    BuilderAcademy,
 }
 
 impl EntType {
@@ -831,15 +1006,19 @@ impl EntType {
             EntType::House => Color::PURPLE,
             EntType::UpgradeInventory => Color::YELLOW,
             EntType::Road => Color::GRAY,
+            EntType::GoldHarvester => Color::GOLD.with_l(0.1),
+            EntType::Builder => Color::PINK.with_l(0.2),
+            EntType::BuilderAcademy => Color::PINK,
         }
     }
     fn size(&self) -> IVec2 {
         match self {
-            EntType::Harvester | EntType::Road => IVec2::splat(1),
             EntType::Storage => IVec2::new(4, 3),
             EntType::Base => IVec2::splat(5),
             EntType::House => IVec2::splat(2),
             EntType::UpgradeInventory => IVec2::new(2, 3),
+            EntType::BuilderAcademy => IVec2::new(3, 2),
+            _ => IVec2::splat(1),
         }
     }
 }
@@ -917,6 +1096,7 @@ fn setup_ui(mut commands: Commands) {
                 for typ in [
                     EntType::House,
                     EntType::Road,
+                    EntType::BuilderAcademy,
                     EntType::UpgradeInventory,
                     EntType::Storage,
                 ] {
