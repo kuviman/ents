@@ -205,7 +205,7 @@ fn pathfind_iteration<T: Component>(
             }
             if let Some(c) = &mut closest {
                 // TODO ??
-                if c.distance == 1000 {
+                if c.distance > 1000 {
                     closest = None;
                 }
             }
