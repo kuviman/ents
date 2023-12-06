@@ -36,9 +36,10 @@ impl Plugin for GamePlugin {
         app.insert_resource(EntCosts({
             let mut costs = HashMap::new();
             // costs.insert(EntType::Harvester, 5);
-            costs.insert(EntType::House, 1);
+            costs.insert(EntType::House, 10);
             costs.insert(EntType::Road, 1);
-            costs.insert(EntType::UpgradeInventory, 1);
+            costs.insert(EntType::UpgradeInventory, 50);
+            costs.insert(EntType::Storage, 100);
             costs
         }));
 
@@ -62,12 +63,13 @@ impl Plugin for GamePlugin {
             ),
         );
         app.register_pathfinding_towards::<Harvestable>();
-        app.register_pathfinding_towards::<Storage>();
+        app.register_pathfinding_towards::<StorageThatHasSpace>();
+        app.add_systems(Update, (update_storages, visualize_storage));
         app.add_systems(
             Update,
             (
                 ent_movement::<Harvesting, Harvestable>,
-                ent_movement::<Storing, Storage>,
+                ent_movement::<Storing, StorageThatHasSpace>,
                 ent_harvest,
                 ent_store,
             ),
@@ -98,6 +100,67 @@ struct PlacementPreview;
 
 #[derive(Component)]
 struct PlacementBlocked(bool);
+
+#[derive(Component)]
+struct StorageThatHasSpace;
+
+#[derive(Component)]
+struct StorageLabel;
+
+fn visualize_storage(
+    mut text: Query<&mut Text, With<StorageLabel>>,
+    storages: Query<(Entity, &Storage, Option<&Children>), Changed<Storage>>,
+    mut commands: Commands,
+) {
+    for (entity, storage, children) in storages.iter() {
+        let new_text = format!("{}/{}", storage.current, storage.max);
+        if let Some(child) = children
+            .map(|children| children.iter())
+            .into_iter()
+            .flatten()
+            .copied()
+            .find(|&child| text.get(child).is_ok())
+        {
+            let mut text = text.get_mut(child).unwrap();
+            text.sections[0].value = new_text;
+        } else {
+            commands
+                .spawn((
+                    Text2dBundle {
+                        text: Text::from_section(
+                            new_text,
+                            TextStyle {
+                                font_size: 36.0,
+                                color: Color::BLACK,
+                                ..default()
+                            },
+                        ),
+                        transform: Transform::from_translation(Vec3::new(0.0, 0.0, 1.0))
+                            .with_scale(Vec3::splat(0.03)),
+                        ..default()
+                    },
+                    StorageLabel,
+                ))
+                .set_parent(entity);
+        }
+    }
+}
+
+fn update_storages(
+    q: Query<(Entity, &Storage, Has<StorageThatHasSpace>), Changed<Storage>>,
+    mut commands: Commands,
+) {
+    for (entity, storage, had_space) in q.iter() {
+        let has_space = storage.current < storage.max;
+        if has_space != had_space {
+            if has_space {
+                commands.entity(entity).insert(StorageThatHasSpace);
+            } else {
+                commands.entity(entity).remove::<StorageThatHasSpace>();
+            }
+        }
+    }
+}
 
 fn update_placing_preview(
     mut preview: Query<
@@ -298,6 +361,9 @@ struct Spawn {
     amount: usize,
 }
 
+#[derive(Component)]
+struct Home(Entity);
+
 fn spawn_ents(
     mut spawners: Query<(Entity, &Pos, Option<&Size>, &mut Spawn)>,
     mut commands: Commands,
@@ -322,7 +388,7 @@ fn spawn_ents(
                 .choose(&mut thread_rng())
                 .unwrap();
             spawn.amount -= 1;
-            commands.spawn((Pos(spawn_pos), spawn.ent_type));
+            commands.spawn((Pos(spawn_pos), Home(spawner_entity), spawn.ent_type));
         }
     }
 }
@@ -368,6 +434,15 @@ struct GoingForUpgrade<T>(PhantomData<T>);
 fn ent_types(q: Query<(Entity, &EntType), Added<EntType>>, mut commands: Commands) {
     for (entity, ent_type) in q.iter() {
         match ent_type {
+            EntType::Storage => {
+                commands.entity(entity).insert((
+                    Storage {
+                        current: 0,
+                        max: 500,
+                    },
+                    Blocking,
+                ));
+            }
             EntType::Road => {
                 commands.entity(entity).insert(Road);
             }
@@ -392,9 +467,14 @@ fn ent_types(q: Query<(Entity, &EntType), Added<EntType>>, mut commands: Command
                 ));
             }
             EntType::Base => {
-                commands
-                    .entity(entity)
-                    .insert((Storage, Blocking, ProvidePopulation(5)));
+                commands.entity(entity).insert((
+                    Storage {
+                        current: 0,
+                        max: 1000,
+                    },
+                    Blocking,
+                    ProvidePopulation(5),
+                ));
             }
             EntType::House => {
                 commands.entity(entity).insert((
@@ -422,7 +502,10 @@ fn ent_types(q: Query<(Entity, &EntType), Added<EntType>>, mut commands: Command
 }
 
 #[derive(Component)]
-struct Storage;
+struct Storage {
+    current: i32,
+    max: i32,
+}
 
 fn generate_chunks(
     noise: Res<Noise>,
@@ -491,7 +574,7 @@ struct Storing;
 
 fn ent_store(
     mut ents: Query<(Entity, &Pos, &mut Inventory), (With<Idle>, With<Storing>)>,
-    storage: Query<Entity, With<Storage>>,
+    mut storage: Query<&mut Storage>,
     tile_map: Res<TileMap>,
     mut money: ResMut<Money>,
     mut commands: Commands,
@@ -500,12 +583,16 @@ fn ent_store(
         let try_to_store = MOVE_DIRECTIONS
             .into_iter()
             .flat_map(|dir| tile_map.entities_at(ent_pos.0 + dir))
-            .filter_map(|entity| storage.get(entity).ok())
-            .next();
-        if let Some(_storage_entity) = try_to_store {
-            money.0 += inventory.current;
-            inventory.current = 0;
-            commands.entity(ent).remove::<Storing>().insert(Harvesting);
+            .find(|&entity| storage.get(entity).is_ok());
+        if let Some(storage_entity) = try_to_store {
+            let mut storage = storage.get_mut(storage_entity).unwrap();
+            let amount_to_store = inventory.current.min(storage.max - storage.current);
+            inventory.current -= amount_to_store;
+            storage.current += amount_to_store;
+            money.0 += amount_to_store;
+            if inventory.current == 0 {
+                commands.entity(ent).remove::<Storing>().insert(Harvesting);
+            }
         }
     }
 }
@@ -723,6 +810,7 @@ fn button_actions(
 enum EntType {
     Harvester,
     Base,
+    Storage,
     House,
     UpgradeInventory,
     Road,
@@ -739,6 +827,7 @@ impl EntType {
         match self {
             EntType::Harvester => Color::BLACK,
             EntType::Base => Color::RED,
+            EntType::Storage => Color::BEIGE,
             EntType::House => Color::PURPLE,
             EntType::UpgradeInventory => Color::YELLOW,
             EntType::Road => Color::GRAY,
@@ -747,6 +836,7 @@ impl EntType {
     fn size(&self) -> IVec2 {
         match self {
             EntType::Harvester | EntType::Road => IVec2::splat(1),
+            EntType::Storage => IVec2::new(4, 3),
             EntType::Base => IVec2::splat(5),
             EntType::House => IVec2::splat(2),
             EntType::UpgradeInventory => IVec2::new(2, 3),
@@ -824,7 +914,12 @@ fn setup_ui(mut commands: Commands) {
                 ..default()
             })
             .with_children(|bottom| {
-                for typ in [EntType::House, EntType::UpgradeInventory, EntType::Road] {
+                for typ in [
+                    EntType::House,
+                    EntType::Road,
+                    EntType::UpgradeInventory,
+                    EntType::Storage,
+                ] {
                     bottom
                         .spawn((
                             ButtonBundle {
@@ -896,12 +991,19 @@ fn scale_hovered(mut entities: Query<(&mut Transform, Has<Hovered>), With<ScaleO
 
 fn click_harvest(
     input: Res<Input<MouseButton>>,
+    mut storage: Query<&mut Storage>,
+    tile_map: Res<TileMap>,
     hovered: Query<(Entity, &Harvestable), With<Hovered>>,
     mut money: ResMut<Money>,
     mut commands: Commands,
 ) {
     if input.just_pressed(MouseButton::Left) {
         for (entity, harvestable) in hovered.iter() {
+            for probably_most_likely_the_base in tile_map.entities_at(IVec2::ZERO) {
+                if let Ok(mut storage) = storage.get_mut(probably_most_likely_the_base) {
+                    storage.current += harvestable.0;
+                }
+            }
             commands.entity(entity).despawn();
             money.0 += harvestable.0;
         }
