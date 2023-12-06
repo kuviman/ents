@@ -81,6 +81,102 @@ impl Plugin for GamePlugin {
         app.add_systems(Update, inventory_upgrade);
 
         app.add_state::<PlayerState>();
+
+        app.add_systems(
+            Update,
+            stop_placing_if_not_enough_money.run_if(|state: Res<State<PlayerState>>| {
+                matches!(state.get(), PlayerState::Placing(..))
+            }),
+        );
+        app.add_systems(Update, update_placing_preview);
+    }
+}
+
+#[derive(Component)]
+struct PlacementPreview;
+
+#[derive(Component)]
+struct PlacementBlocked(bool);
+
+fn update_placing_preview(
+    mut preview: Query<
+        (
+            &mut Pos,
+            &mut Size,
+            &mut Sprite,
+            &mut Visibility,
+            &mut PlacementBlocked,
+        ),
+        With<PlacementPreview>,
+    >,
+    blocking: Query<(), With<Blocking>>,
+    tile_map: Res<TileMap>,
+    cursor: Query<&cursor::WorldPos>,
+    state: Res<State<PlayerState>>,
+    mut commands: Commands,
+) {
+    let ent_type = match state.get() {
+        &PlayerState::Placing(ent_type) => Some(ent_type),
+        _ => None,
+    };
+    match preview.get_single_mut() {
+        Ok((mut pos, mut size, mut sprite, mut visibility, mut blocked)) => {
+            if let Some(ent_type) = ent_type {
+                let cell = cursor.single().0.floor().as_ivec2();
+                pos.0 = cell;
+                size.0 = ent_type.size();
+                sprite.color = ent_type.color().with_a(0.5);
+
+                blocked.0 = (-1..=ent_type.size().x)
+                    .flat_map(|dx| {
+                        (-1..=ent_type.size().y).map(move |dy| cell + IVec2::new(dx, dy))
+                    })
+                    .any(|cell| {
+                        tile_map
+                            .entities_at(cell)
+                            .any(|entity| blocking.get(entity).is_ok())
+                    });
+                if blocked.0 {
+                    sprite.color = Color::RED.with_a(0.5);
+                    // size.0 += IVec2::splat(2);
+                    // pos.0 -= IVec2::splat(1);
+                };
+
+                *visibility = Visibility::Visible;
+            } else {
+                *visibility = Visibility::Hidden;
+            }
+        }
+        Err(_) => {
+            commands.spawn((
+                SpriteBundle {
+                    visibility: Visibility::Hidden,
+                    transform: Transform::from_translation(Vec3::new(0.0, 0.0, 100.0)),
+                    ..default()
+                },
+                Pos(IVec2::ZERO),
+                Size(IVec2::splat(1)),
+                PlacementPreview,
+                PlacementBlocked(true),
+            ));
+        }
+    }
+}
+
+fn stop_placing_if_not_enough_money(
+    money: Res<Money>,
+    costs: Res<EntCosts>,
+    state: Res<State<PlayerState>>,
+    mut next_state: ResMut<NextState<PlayerState>>,
+) {
+    let &PlayerState::Placing(ent_type) = state.get() else {
+        return;
+    };
+    let Some(&ent_cost) = costs.0.get(&ent_type) else {
+        return;
+    };
+    if money.0 < ent_cost {
+        next_state.set(PlayerState::Normal);
     }
 }
 
@@ -263,13 +359,6 @@ fn ent_types(q: Query<(Entity, &EntType), Added<EntType>>, mut commands: Command
         match ent_type {
             EntType::Harvester => {
                 commands.entity(entity).insert((
-                    SpriteBundle {
-                        sprite: Sprite {
-                            color: Color::BLACK,
-                            ..default()
-                        },
-                        ..default()
-                    },
                     CanMove,
                     Inventory { current: 0, max: 1 },
                     Idle,
@@ -281,14 +370,6 @@ fn ent_types(q: Query<(Entity, &EntType), Added<EntType>>, mut commands: Command
             }
             EntType::UpgradeInventory => {
                 commands.entity(entity).insert((
-                    SpriteBundle {
-                        sprite: Sprite {
-                            color: Color::YELLOW,
-                            ..default()
-                        },
-                        ..default()
-                    },
-                    Size(IVec2::new(2, 3)),
                     Blocking,
                     CanUpgrade::<InventoryUpgrade> {
                         upgrades_left: 5,
@@ -297,31 +378,13 @@ fn ent_types(q: Query<(Entity, &EntType), Added<EntType>>, mut commands: Command
                 ));
             }
             EntType::Base => {
-                commands.entity(entity).insert((
-                    SpriteBundle {
-                        sprite: Sprite {
-                            color: Color::RED,
-                            ..default()
-                        },
-                        ..default()
-                    },
-                    Size(IVec2::splat(3)),
-                    Storage,
-                    Blocking,
-                    ProvidePopulation(5),
-                ));
+                commands
+                    .entity(entity)
+                    .insert((Storage, Blocking, ProvidePopulation(5)));
             }
             EntType::House => {
                 commands.entity(entity).insert((
-                    SpriteBundle {
-                        sprite: Sprite {
-                            color: Color::PURPLE,
-                            ..default()
-                        },
-                        ..default()
-                    },
                     Blocking,
-                    Size(IVec2::splat(2)),
                     ProvidePopulation(5),
                     Spawn {
                         ent_type: EntType::Harvester,
@@ -330,6 +393,16 @@ fn ent_types(q: Query<(Entity, &EntType), Added<EntType>>, mut commands: Command
                 ));
             }
         }
+        commands.entity(entity).insert((
+            SpriteBundle {
+                sprite: Sprite {
+                    color: ent_type.color(),
+                    ..default()
+                },
+                ..default()
+            },
+            Size(ent_type.size()),
+        ));
     }
 }
 
@@ -348,10 +421,10 @@ fn generate_chunks(
         for x in rect.min.x..rect.max.x {
             for y in rect.min.y..rect.max.y {
                 let pos = IVec2::new(x, y);
-                if x == -1 && y == -1 {
+                if pos == IVec2::ZERO - EntType::Base.size() / 2 {
                     commands.spawn((Pos(pos), EntType::Base));
                 }
-                if pos.length_squared() > 10 {
+                if pos.length_squared() > 100 {
                     pixels.push((
                         SpriteBundle {
                             sprite: Sprite {
@@ -529,25 +602,27 @@ fn ent_movement<EntState: Component, SearchingFor: Component>(
 }
 
 fn place_ent(
-    cursor: Query<&cursor::WorldPos>,
     input: Res<Input<MouseButton>>,
     keyboard: Res<Input<KeyCode>>,
     mut commands: Commands,
     mut player_state: ResMut<NextState<PlayerState>>,
     mut money: ResMut<Money>,
+    preview: Query<(&Pos, &PlacementBlocked)>,
     costs: Res<EntCosts>,
     state: Res<State<PlayerState>>,
 ) {
     let &PlayerState::Placing(ent_type) = state.get() else {
         unreachable!();
     };
+    let Ok((pos, blocked)) = preview.get_single() else {
+        return;
+    };
+    if blocked.0 {
+        return;
+    }
     if input.just_pressed(MouseButton::Left) {
-        let pos = cursor.single().0.floor().as_ivec2();
-
-        // TODO check that empty
-
         money.0 -= costs.0[&ent_type];
-        commands.spawn((Pos(pos), ent_type));
+        commands.spawn((Pos(pos.0), ent_type));
         if !keyboard.pressed(KeyCode::ShiftLeft) {
             player_state.set(PlayerState::Normal);
         }
@@ -627,6 +702,25 @@ enum EntType {
     Base,
     House,
     UpgradeInventory,
+}
+
+impl EntType {
+    fn color(&self) -> Color {
+        match self {
+            EntType::Harvester => Color::BLACK,
+            EntType::Base => Color::RED,
+            EntType::House => Color::PURPLE,
+            EntType::UpgradeInventory => Color::YELLOW,
+        }
+    }
+    fn size(&self) -> IVec2 {
+        match self {
+            EntType::Harvester => IVec2::splat(1),
+            EntType::Base => IVec2::splat(5),
+            EntType::House => IVec2::splat(2),
+            EntType::UpgradeInventory => IVec2::new(2, 3),
+        }
+    }
 }
 
 #[derive(Debug, Event, Component, Copy, Clone)]
