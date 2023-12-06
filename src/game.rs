@@ -57,9 +57,9 @@ impl Plugin for GamePlugin {
         );
         app.add_systems(
             Update,
-            (place_ent, cancel_placing).run_if(|state: Res<State<PlayerState>>| {
-                matches!(state.get(), PlayerState::Placing(..))
-            }),
+            (place_ent.after(update_placing_preview), cancel_placing).run_if(
+                |state: Res<State<PlayerState>>| matches!(state.get(), PlayerState::Placing(..)),
+            ),
         );
         app.register_pathfinding_towards::<Harvestable>();
         app.register_pathfinding_towards::<Storage>();
@@ -72,11 +72,11 @@ impl Plugin for GamePlugin {
                 ent_store,
             ),
         );
-        app.add_systems(Update, ent_types);
         app.add_systems(Update, update_transforms);
         app.add_systems(Update, update_movement);
 
         app.add_systems(Update, spawn_ents);
+        app.add_systems(PostUpdate, ent_types);
 
         register_upgrade::<InventoryUpgrade>(app);
         app.add_systems(Update, inventory_upgrade);
@@ -154,6 +154,7 @@ fn update_placing_preview(
 
                 *visibility = Visibility::Visible;
             } else {
+                blocked.0 = true;
                 *visibility = Visibility::Hidden;
             }
         }
@@ -641,6 +642,7 @@ fn place_ent(
     let Ok((pos, blocked)) = preview.get_single() else {
         return;
     };
+
     if blocked.0 {
         return;
     }

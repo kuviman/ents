@@ -1,5 +1,7 @@
 # Bevy POG
 
+## spawn entity with only type component -> populate other components pattern
+
 ## mold
 
 `mold` is faster but need to recompile from scratch after building for web
