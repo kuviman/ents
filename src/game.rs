@@ -1,5 +1,8 @@
-use bevy::{prelude::*, utils::HashMap};
-use rand::{thread_rng, Rng};
+use bevy::{
+    prelude::*,
+    utils::{HashMap, HashSet},
+};
+use rand::{seq::IteratorRandom, thread_rng, Rng};
 
 use crate::{
     buttons, cursor,
@@ -68,7 +71,45 @@ impl Plugin for GamePlugin {
         app.add_systems(Update, ent_types);
         app.add_systems(Update, update_transforms);
         app.add_systems(Update, update_movement);
+
+        app.add_systems(Update, spawn_ents);
+
         app.add_state::<PlayerState>();
+    }
+}
+
+#[derive(Component)]
+struct Spawn {
+    ent_type: EntType,
+    amount: usize,
+}
+
+fn spawn_ents(
+    mut spawners: Query<(Entity, &Pos, Option<&Size>, &mut Spawn)>,
+    mut commands: Commands,
+) {
+    for (spawner_entity, pos, size, mut spawn) in spawners.iter_mut() {
+        if spawn.amount == 0 {
+            commands.entity(spawner_entity).remove::<Spawn>();
+        } else {
+            let size = size.map_or(IVec2::splat(1), |size| size.0);
+
+            let mut possible_spawn_locations = HashSet::new();
+            for dx in 0..size.x {
+                possible_spawn_locations.insert(pos.0 + IVec2::new(dx, 0));
+                possible_spawn_locations.insert(pos.0 + IVec2::new(dx, size.y - 1));
+            }
+            for dy in 0..size.y {
+                possible_spawn_locations.insert(pos.0 + IVec2::new(0, dy));
+                possible_spawn_locations.insert(pos.0 + IVec2::new(size.x - 1, dy));
+            }
+            let spawn_pos = possible_spawn_locations
+                .into_iter()
+                .choose(&mut thread_rng())
+                .unwrap();
+            spawn.amount -= 1;
+            commands.spawn((Pos(spawn_pos), spawn.ent_type));
+        }
     }
 }
 
@@ -130,6 +171,10 @@ fn ent_types(q: Query<(Entity, &EntType), Added<EntType>>, mut commands: Command
                     Blocking,
                     Size(IVec2::splat(2)),
                     ProvidePopulation(5),
+                    Spawn {
+                        ent_type: EntType::Harvester,
+                        amount: 5,
+                    },
                 ));
             }
         }
@@ -501,7 +546,7 @@ fn setup_ui(mut commands: Commands) {
                 ..default()
             })
             .with_children(|bottom| {
-                for typ in [EntType::Harvester, EntType::House] {
+                for typ in [EntType::House] {
                     bottom
                         .spawn((
                             ButtonBundle {
