@@ -1,3 +1,5 @@
+use std::marker::PhantomData;
+
 use bevy::{
     prelude::*,
     utils::{HashMap, HashSet},
@@ -33,8 +35,9 @@ impl Plugin for GamePlugin {
 
         app.insert_resource(EntCosts({
             let mut costs = HashMap::new();
-            costs.insert(EntType::Harvester, 5);
-            costs.insert(EntType::House, 30);
+            // costs.insert(EntType::Harvester, 5);
+            costs.insert(EntType::House, 1);
+            costs.insert(EntType::UpgradeInventory, 1);
             costs
         }));
 
@@ -74,9 +77,113 @@ impl Plugin for GamePlugin {
 
         app.add_systems(Update, spawn_ents);
 
+        register_upgrade::<InventoryUpgrade>(app);
+        app.add_systems(Update, inventory_upgrade);
+
         app.add_state::<PlayerState>();
     }
 }
+
+fn inventory_upgrade(mut ents: Query<(&mut Inventory, &mut Sprite), Added<InventoryUpgrade>>) {
+    for (mut inventory, mut sprite) in ents.iter_mut() {
+        inventory.max += 5;
+        sprite.color = Color::GOLD.with_l(0.1);
+    }
+}
+
+fn register_upgrade<U: Upgrade>(app: &mut App) {
+    app.add_systems(
+        Update,
+        (
+            start_assigning_upgrades::<U>,
+            assign_upgrades::<U>,
+            ent_movement::<GoingForUpgrade<U>, CanUpgrade<U>>,
+            receive_upgrade::<U>,
+        ),
+    );
+    app.register_pathfinding_towards::<CanUpgrade<U>>();
+}
+
+trait Upgrade: Component {
+    fn new() -> Self;
+}
+
+fn receive_upgrade<U: Upgrade>(
+    ents: Query<(Entity, &Pos), With<GoingForUpgrade<U>>>,
+    mut upgrade_shops: Query<&mut CanUpgrade<U>>,
+    tile_map: Res<TileMap>,
+    mut commands: Commands,
+) {
+    for (ent, ent_pos) in ents.iter() {
+        for dir in MOVE_DIRECTIONS {
+            let upgrade_shop = tile_map
+                .entities_at(ent_pos.0 + dir)
+                .find(|&entity| upgrade_shops.get(entity).is_ok());
+            if let Some(upgrade_shop_entity) = upgrade_shop {
+                let mut upgrade = upgrade_shops.get_mut(upgrade_shop_entity).unwrap();
+                if upgrade.upgrades_left > 0 {
+                    upgrade.upgrades_left -= 1;
+                    commands
+                        .entity(ent)
+                        .insert(U::new())
+                        .remove::<(GoingForUpgrade<U>, GoingForAnyUpgrade)>()
+                        .insert(Harvesting); // TODO maybe other?
+                    if upgrade.upgrades_left == 0 {
+                        commands
+                            .entity(upgrade_shop_entity)
+                            .remove::<CanUpgrade<U>>();
+                    }
+                }
+                break;
+            }
+        }
+    }
+}
+
+fn start_assigning_upgrades<U: Upgrade>(
+    q: Query<(Entity, &CanUpgrade<U>), Added<CanUpgrade<U>>>,
+    mut commands: Commands,
+) {
+    for (entity, can_upgrade) in q.iter() {
+        commands.entity(entity).insert(NeedToAssignUpgrades::<U> {
+            unassigned: can_upgrade.upgrades_left,
+            phantom_data: PhantomData,
+        });
+    }
+}
+fn assign_upgrades<U: Upgrade>(
+    ents: Query<
+        Entity,
+        (
+            With<CanReceiveUpgrades>,
+            Without<U>,
+            Without<GoingForAnyUpgrade>,
+        ),
+    >,
+    mut upgrade_shops: Query<(Entity, &mut NeedToAssignUpgrades<U>)>,
+    mut commands: Commands,
+) {
+    let mut ents_to_upgrade = ents.iter();
+    for (shop_entity, mut shops) in upgrade_shops.iter_mut() {
+        if shops.unassigned == 0 {
+            commands
+                .entity(shop_entity)
+                .remove::<NeedToAssignUpgrades<U>>();
+        } else if let Some(ent) = ents_to_upgrade.next() {
+            shops.unassigned -= 1;
+            commands
+                .entity(ent)
+                .insert((GoingForAnyUpgrade, GoingForUpgrade::<U>(PhantomData)))
+                .remove::<Harvesting>()
+                .remove::<Storing>(); // TODO what if I have more state??
+        } else {
+            break;
+        }
+    }
+}
+
+#[derive(Component)]
+struct CanReceiveUpgrades;
 
 #[derive(Component)]
 struct Spawn {
@@ -124,6 +231,33 @@ fn harvestable_color(mut q: Query<(&mut Sprite, &Harvestable), Changed<Harvestab
     }
 }
 
+#[derive(Component)]
+struct CanUpgrade<T> {
+    upgrades_left: usize,
+    phantom_data: PhantomData<T>,
+}
+
+#[derive(Component)]
+struct NeedToAssignUpgrades<T> {
+    unassigned: usize,
+    phantom_data: PhantomData<T>,
+}
+
+#[derive(Component)]
+struct InventoryUpgrade;
+
+impl Upgrade for InventoryUpgrade {
+    fn new() -> Self {
+        Self
+    }
+}
+
+#[derive(Component)]
+struct GoingForAnyUpgrade;
+
+#[derive(Component)]
+struct GoingForUpgrade<T>(PhantomData<T>);
+
 fn ent_types(q: Query<(Entity, &EntType), Added<EntType>>, mut commands: Commands) {
     for (entity, ent_type) in q.iter() {
         match ent_type {
@@ -142,6 +276,24 @@ fn ent_types(q: Query<(Entity, &EntType), Added<EntType>>, mut commands: Command
                     CanHavest,
                     UsesPopulation,
                     Harvesting,
+                    CanReceiveUpgrades,
+                ));
+            }
+            EntType::UpgradeInventory => {
+                commands.entity(entity).insert((
+                    SpriteBundle {
+                        sprite: Sprite {
+                            color: Color::YELLOW,
+                            ..default()
+                        },
+                        ..default()
+                    },
+                    Size(IVec2::new(2, 3)),
+                    Blocking,
+                    CanUpgrade::<InventoryUpgrade> {
+                        upgrades_left: 5,
+                        phantom_data: PhantomData,
+                    },
                 ));
             }
             EntType::Base => {
@@ -474,6 +626,7 @@ enum EntType {
     Harvester,
     Base,
     House,
+    UpgradeInventory,
 }
 
 #[derive(Debug, Event, Component, Copy, Clone)]
@@ -546,7 +699,7 @@ fn setup_ui(mut commands: Commands) {
                 ..default()
             })
             .with_children(|bottom| {
-                for typ in [EntType::House] {
+                for typ in [EntType::House, EntType::UpgradeInventory] {
                     bottom
                         .spawn((
                             ButtonBundle {
