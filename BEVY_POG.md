@@ -4,6 +4,10 @@
 
 `mold` is faster but need to recompile from scratch after building for web
 
+## compile times
+
+better this time (~2 s), using dynamic linking, breaks sometimes, fix using `cargo clean -p my_game`.
+
 ## Game template not working
 
 Web build had black screen - <https://github.com/NiklasEi/bevy_game_template/issues/84>
