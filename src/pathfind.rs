@@ -149,6 +149,7 @@ pub struct Blocking;
 
 fn pathfind_iteration<T: Component>(
     searching_for: Query<(), With<T>>,
+    roads: Query<()>,
     blocking: Query<(), With<Blocking>>,
     tile_map: Res<TileMap>,
     mut data: ResMut<Pathfinding<T>>,
@@ -174,21 +175,29 @@ fn pathfind_iteration<T: Component>(
             let mut closest = None;
             for dir in MOVE_DIRECTIONS {
                 let next_pos = update.pos + dir;
+                let w = if tile_map
+                    .entities_at(next_pos)
+                    .any(|entity| roads.get(entity).is_ok())
+                {
+                    1
+                } else {
+                    2
+                };
                 if let Some(next_closest) = data.closest.get(&next_pos) {
                     let do_replace = match &mut closest {
                         Some(Closest { distance, ways }) => {
-                            if *distance == next_closest.distance + 1 {
+                            if *distance == next_closest.distance + w {
                                 *ways = (*ways + next_closest.ways).min(1e5);
                                 false
                             } else {
-                                *distance > next_closest.distance + 1
+                                *distance > next_closest.distance + w
                             }
                         }
                         None => true,
                     };
                     if do_replace {
                         closest = Some(Closest {
-                            distance: next_closest.distance + 1,
+                            distance: next_closest.distance + w,
                             ways: next_closest.ways,
                         });
                     };

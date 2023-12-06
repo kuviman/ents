@@ -37,6 +37,7 @@ impl Plugin for GamePlugin {
             let mut costs = HashMap::new();
             // costs.insert(EntType::Harvester, 5);
             costs.insert(EntType::House, 1);
+            costs.insert(EntType::Road, 1);
             costs.insert(EntType::UpgradeInventory, 1);
             costs
         }));
@@ -109,6 +110,7 @@ fn update_placing_preview(
         ),
         With<PlacementPreview>,
     >,
+    roads: Query<(), With<Road>>,
     blocking: Query<(), With<Blocking>>,
     tile_map: Res<TileMap>,
     cursor: Query<&cursor::WorldPos>,
@@ -127,14 +129,22 @@ fn update_placing_preview(
                 size.0 = ent_type.size();
                 sprite.color = ent_type.color().with_a(0.5);
 
-                blocked.0 = (-1..=ent_type.size().x)
+                let off = match ent_type {
+                    EntType::Road => 0,
+                    _ => 1,
+                };
+
+                let rect = IRect::from_corners(cell, cell + ent_type.size() - IVec2::splat(1));
+
+                blocked.0 = (-off..ent_type.size().x + off)
                     .flat_map(|dx| {
-                        (-1..=ent_type.size().y).map(move |dy| cell + IVec2::new(dx, dy))
+                        (-off..ent_type.size().y + off).map(move |dy| cell + IVec2::new(dx, dy))
                     })
                     .any(|cell| {
-                        tile_map
-                            .entities_at(cell)
-                            .any(|entity| blocking.get(entity).is_ok())
+                        tile_map.entities_at(cell).any(|entity| {
+                            blocking.get(entity).is_ok()
+                                || (rect.contains(cell) && roads.get(entity).is_ok())
+                        })
                     });
                 if blocked.0 {
                     sprite.color = Color::RED.with_a(0.5);
@@ -357,6 +367,9 @@ struct GoingForUpgrade<T>(PhantomData<T>);
 fn ent_types(q: Query<(Entity, &EntType), Added<EntType>>, mut commands: Commands) {
     for (entity, ent_type) in q.iter() {
         match ent_type {
+            EntType::Road => {
+                commands.entity(entity).insert(Road);
+            }
             EntType::Harvester => {
                 commands.entity(entity).insert((
                     CanMove,
@@ -399,6 +412,7 @@ fn ent_types(q: Query<(Entity, &EntType), Added<EntType>>, mut commands: Command
                     color: ent_type.color(),
                     ..default()
                 },
+                transform: Transform::from_translation(Vec3::new(0.0, 0.0, ent_type.z())),
                 ..default()
             },
             Size(ent_type.size()),
@@ -526,14 +540,26 @@ fn ent_harvest(
     }
 }
 
+#[derive(Component)]
+struct Road;
+
 fn update_movement(
     mut q: Query<(Entity, &mut Pos, &mut Moving)>,
     time: Res<Time>,
+    roads: Query<With<Road>>,
+    tile_map: Res<TileMap>,
     mut commands: Commands,
 ) {
-    const ENT_MOVE_TIME: f32 = 0.2;
     for (entity, mut pos, mut moving) in q.iter_mut() {
-        moving.t += time.delta_seconds() / ENT_MOVE_TIME;
+        let move_time = if tile_map
+            .entities_at(pos.0)
+            .any(|entity| roads.get(entity).is_ok())
+        {
+            0.1
+        } else {
+            0.2
+        };
+        moving.t += time.delta_seconds() / move_time;
         if moving.t > 1.0 {
             commands.entity(entity).remove::<Moving>().insert(Idle);
             pos.0 = moving.next_pos;
@@ -603,9 +629,7 @@ fn ent_movement<EntState: Component, SearchingFor: Component>(
 
 fn place_ent(
     input: Res<Input<MouseButton>>,
-    keyboard: Res<Input<KeyCode>>,
     mut commands: Commands,
-    mut player_state: ResMut<NextState<PlayerState>>,
     mut money: ResMut<Money>,
     preview: Query<(&Pos, &PlacementBlocked)>,
     costs: Res<EntCosts>,
@@ -620,12 +644,9 @@ fn place_ent(
     if blocked.0 {
         return;
     }
-    if input.just_pressed(MouseButton::Left) {
+    if input.just_pressed(MouseButton::Left) || input.pressed(MouseButton::Left) {
         money.0 -= costs.0[&ent_type];
         commands.spawn((Pos(pos.0), ent_type));
-        if !keyboard.pressed(KeyCode::ShiftLeft) {
-            player_state.set(PlayerState::Normal);
-        }
     }
 }
 
@@ -702,20 +723,28 @@ enum EntType {
     Base,
     House,
     UpgradeInventory,
+    Road,
 }
 
 impl EntType {
+    fn z(&self) -> f32 {
+        match self {
+            Self::Road => 0.0,
+            _ => 1.0,
+        }
+    }
     fn color(&self) -> Color {
         match self {
             EntType::Harvester => Color::BLACK,
             EntType::Base => Color::RED,
             EntType::House => Color::PURPLE,
             EntType::UpgradeInventory => Color::YELLOW,
+            EntType::Road => Color::GRAY,
         }
     }
     fn size(&self) -> IVec2 {
         match self {
-            EntType::Harvester => IVec2::splat(1),
+            EntType::Harvester | EntType::Road => IVec2::splat(1),
             EntType::Base => IVec2::splat(5),
             EntType::House => IVec2::splat(2),
             EntType::UpgradeInventory => IVec2::new(2, 3),
@@ -793,7 +822,7 @@ fn setup_ui(mut commands: Commands) {
                 ..default()
             })
             .with_children(|bottom| {
-                for typ in [EntType::House, EntType::UpgradeInventory] {
+                for typ in [EntType::House, EntType::UpgradeInventory, EntType::Road] {
                     bottom
                         .spawn((
                             ButtonBundle {
