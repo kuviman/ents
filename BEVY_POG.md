@@ -1,5 +1,13 @@
 # Bevy POG
 
+## Game template not working
+
+Web build had black screen - <https://github.com/NiklasEi/bevy_game_template/issues/84>
+
+This shows how easy it is to break something when making changes?
+
+Native build also stopped working at some point. No idea what asset failed when using `bevy-asset-manager`.
+
 ## Has vs With
 
 So I used `Has<Component>` instead of `With<Component>` and it took me 1 hour to find the problem.
