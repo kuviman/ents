@@ -44,6 +44,7 @@ impl Plugin for GamePlugin {
             costs.insert(EntType::UpgradeInventory, 50);
             costs.insert(EntType::Storage, 100);
             costs.insert(EntType::BuilderAcademy, 50);
+            costs.insert(EntType::Monument, 5000);
             costs
         }));
 
@@ -699,9 +700,21 @@ fn building_upgrade_storage(
     }
 }
 
+struct MonumentUpgrade;
+
+impl BuildingUpgrade for MonumentUpgrade {
+    fn add_systems(_app: &mut App) {}
+    const BASE_COST: i32 = 10000;
+}
+
 fn ent_types(q: Query<(Entity, &EntType), Added<EntType>>, mut commands: Commands) {
     for (entity, ent_type) in q.iter() {
         match ent_type {
+            EntType::Monument => {
+                commands
+                    .entity(entity)
+                    .insert((Blocking, BuildingUpgradeComponent::<MonumentUpgrade>::new()));
+            }
             EntType::Storage => {
                 commands.entity(entity).insert((
                     Storage {
@@ -1225,6 +1238,7 @@ enum EntType {
     GoldHarvester,
     Builder,
     BuilderAcademy,
+    Monument,
 }
 
 impl EntType {
@@ -1245,6 +1259,7 @@ impl EntType {
             EntType::GoldHarvester => Color::GOLD.with_l(0.1),
             EntType::Builder => Color::PINK.with_l(0.2),
             EntType::BuilderAcademy => Color::PINK,
+            EntType::Monument => Color::AQUAMARINE,
         }
     }
     fn size(&self) -> IVec2 {
@@ -1254,6 +1269,7 @@ impl EntType {
             EntType::House => IVec2::splat(2),
             EntType::UpgradeInventory => IVec2::new(2, 3),
             EntType::BuilderAcademy => IVec2::new(3, 2),
+            EntType::Monument => IVec2::splat(10),
             _ => IVec2::splat(1),
         }
     }
@@ -1354,6 +1370,14 @@ fn setup_ui(mut commands: Commands) {
                     (EntType::BuilderAcademy, vec![EntType::House]),
                     (EntType::UpgradeInventory, vec![EntType::House]),
                     (EntType::Storage, vec![EntType::House]),
+                    (
+                        EntType::Monument,
+                        vec![
+                            EntType::BuilderAcademy,
+                            EntType::UpgradeInventory,
+                            EntType::Storage,
+                        ],
+                    ),
                 ] {
                     bottom
                         .spawn((
