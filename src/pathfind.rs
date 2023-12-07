@@ -5,7 +5,7 @@ use rand::{seq::SliceRandom, thread_rng};
 
 use crate::{
     chunks::GeneratedChunks,
-    game::MOVE_DIRECTIONS,
+    game::{CanMove, MOVE_DIRECTIONS},
     tile_map::{Pos, Size, TileMap},
 };
 
@@ -14,6 +14,8 @@ pub struct Plugin;
 impl bevy::app::Plugin for Plugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Update, despawn_debug);
+        app.insert_resource(Ents::default());
+        app.add_systems(Update, update_ents);
     }
 }
 
@@ -50,9 +52,47 @@ pub struct Direction {
     pub distance: u32,
 }
 
+#[derive(Resource, Default)]
+pub struct Ents {
+    map: HashMap<IVec2, usize>,
+    prev: HashMap<Entity, IVec2>,
+}
+
+fn update_ents(
+    mut res: ResMut<Ents>,
+    ents: Query<(Entity, &Pos), (With<CanMove>, Changed<Pos>)>,
+    mut removed: RemovedComponents<CanMove>,
+) {
+    for entity in removed.read() {
+        if let Some(pos) = res.prev.remove(&entity) {
+            *res.map.get_mut(&pos).unwrap() -= 1;
+        }
+    }
+    for (entity, pos) in ents.iter() {
+        if let Some(&pos) = res.prev.get(&entity) {
+            *res.map.get_mut(&pos).unwrap() -= 1;
+        }
+        *res.map.entry(pos.0).or_default() += 1;
+        res.prev.insert(entity, pos.0);
+    }
+}
+
+impl Ents {
+    fn contains(&self, pos: IVec2) -> bool {
+        match self.map.get(&pos) {
+            Some(&amount) => amount != 0,
+            None => false,
+        }
+    }
+}
+
 impl<T> Pathfinding<T> {
-    pub fn pathfind(&self, from: IVec2) -> Option<Direction> {
-        let closest_distance = MOVE_DIRECTIONS
+    fn pathfind_using_direction(
+        &self,
+        from: IVec2,
+        directions: impl IntoIterator<Item = IVec2>,
+    ) -> Option<Direction> {
+        let closest_distance = directions
             .into_iter()
             .filter_map(|dir| self.closest.get(&(from + dir)))
             .map(|closest| closest.distance)
@@ -73,6 +113,15 @@ impl<T> Pathfinding<T> {
             dir,
             distance: self.closest[&(from + dir)].distance + 1,
         })
+    }
+    pub fn pathfind(&self, ents: &Ents, from: IVec2) -> Option<Direction> {
+        self.pathfind_using_direction(
+            from,
+            MOVE_DIRECTIONS
+                .into_iter()
+                .filter(|&dir| !ents.contains(from + dir)),
+        )
+        .or_else(|| self.pathfind_using_direction(from, MOVE_DIRECTIONS))
     }
 }
 

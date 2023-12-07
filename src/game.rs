@@ -8,7 +8,7 @@ use rand::{seq::IteratorRandom, thread_rng, Rng};
 
 use crate::{
     buttons, cursor,
-    pathfind::{AppExt, Blocking, Pathfinding},
+    pathfind::{self, AppExt, Blocking, Pathfinding},
     tile_map::{Pos, Size, TileMap},
     ui,
 };
@@ -863,21 +863,22 @@ fn update_transforms(
 struct Idle;
 
 #[derive(Component)]
-struct CanMove;
+pub struct CanMove;
 
 #[derive(Component)]
-struct Moving {
-    next_pos: IVec2,
-    t: f32,
+pub struct Moving {
+    pub next_pos: IVec2,
+    pub t: f32,
 }
 
 fn ent_movement<EntState: Component, SearchingFor: Component>(
+    pathfind_ents: Res<pathfind::Ents>,
     ents: Query<(Entity, &Pos), (With<CanMove>, With<Idle>, With<EntState>)>,
     pathfinding: Res<Pathfinding<SearchingFor>>,
     mut commands: Commands,
 ) {
     for (entity, ent_pos) in ents.iter() {
-        if let Some(dir) = pathfinding.pathfind(ent_pos.0) {
+        if let Some(dir) = pathfinding.pathfind(&pathfind_ents, ent_pos.0) {
             if dir.distance > 1 {
                 commands
                     .entity(entity)
