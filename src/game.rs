@@ -7,6 +7,8 @@ use bevy::{
 };
 use rand::{seq::IteratorRandom, thread_rng, Rng};
 
+const INITIAL_MONEY: i32 = 50;
+
 use crate::{
     buttons, cursor,
     pathfind::{self, AppExt, Blocking, Pathfinding},
@@ -51,13 +53,10 @@ impl Plugin for GamePlugin {
         crate::buttons::register::<ButtonAction>(app);
         app.add_systems(Startup, setup_camera);
         // app.add_systems(Startup, spawn_a_LOT_of_entities);
-        app.insert_resource(Money(0));
+        app.insert_resource(Money(INITIAL_MONEY));
         app.add_systems(Update, (update_money_text, update_population_text));
         app.add_systems(Update, scale_hovered);
-        app.add_systems(
-            Update,
-            (hover_pixel, click_harvest).run_if(in_state(PlayerState::Normal)),
-        );
+        app.add_systems(Update, hovering.run_if(in_state(PlayerState::Normal)));
         app.add_systems(
             Update,
             (place_ent.after(update_placing_preview), cancel_placing).run_if(
@@ -763,7 +762,7 @@ fn ent_types(q: Query<(Entity, &EntType), Added<EntType>>, mut commands: Command
             EntType::Base => {
                 commands.entity(entity).insert((
                     Storage {
-                        current: 0,
+                        current: INITIAL_MONEY,
                         max: 1000,
                     },
                     Blocking,
@@ -848,7 +847,6 @@ fn generate_chunks(
                             ..default()
                         },
                         Pos(pos),
-                        ScaleOnHover,
                         Harvestable(
                             (Vec2::new(x as f32, y as f32).length() / 20.0
                                 + noise.get(pos.as_vec2() / 5.0) * 5.0)
@@ -1373,7 +1371,7 @@ struct Hovered;
 #[derive(Component)]
 struct IsHovered(bool);
 
-fn hover_pixel(
+fn hovering(
     cursor: Query<&cursor::WorldPos>,
     hovered: Query<Entity, With<Hovered>>,
     tile_map: Res<TileMap>,
@@ -1416,27 +1414,6 @@ fn scale_hovered(
             transform.scale = Vec3::splat((size + 0.5) / size);
         } else {
             transform.scale = Vec3::splat(1.0);
-        }
-    }
-}
-
-fn click_harvest(
-    input: Res<Input<MouseButton>>,
-    mut storage: Query<&mut Storage>,
-    tile_map: Res<TileMap>,
-    hovered: Query<(Entity, &Harvestable), With<Hovered>>,
-    mut money: ResMut<Money>,
-    mut commands: Commands,
-) {
-    if input.just_pressed(MouseButton::Left) {
-        for (entity, harvestable) in hovered.iter() {
-            for probably_most_likely_the_base in tile_map.entities_at(IVec2::ZERO) {
-                if let Ok(mut storage) = storage.get_mut(probably_most_likely_the_base) {
-                    storage.current += harvestable.0;
-                }
-            }
-            commands.entity(entity).despawn();
-            money.0 += harvestable.0;
         }
     }
 }
