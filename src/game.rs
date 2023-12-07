@@ -707,7 +707,11 @@ impl BuildingUpgrade for MonumentUpgrade {
     const BASE_COST: i32 = 10000;
 }
 
-fn ent_types(q: Query<(Entity, &EntType), Added<EntType>>, mut commands: Commands) {
+fn ent_types(
+    q: Query<(Entity, &EntType), Added<EntType>>,
+    asset_server: Res<AssetServer>,
+    mut commands: Commands,
+) {
     for (entity, ent_type) in q.iter() {
         match ent_type {
             EntType::Monument => {
@@ -809,6 +813,12 @@ fn ent_types(q: Query<(Entity, &EntType), Added<EntType>>, mut commands: Command
                 sprite: Sprite {
                     color: ent_type.color(),
                     ..default()
+                },
+                texture: match ent_type {
+                    EntType::Harvester | EntType::GoldHarvester | EntType::Builder => {
+                        asset_server.load("crab.png")
+                    }
+                    _ => default(),
                 },
                 transform: Transform::from_translation(Vec3::new(0.0, 0.0, ent_type.z())),
                 ..default()
