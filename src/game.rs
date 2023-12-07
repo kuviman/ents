@@ -1,6 +1,7 @@
 use std::marker::PhantomData;
 
 use bevy::{
+    ecs::system::{EntityCommand, EntityCommands},
     prelude::*,
     utils::{HashMap, HashSet},
 };
@@ -106,6 +107,33 @@ impl Plugin for GamePlugin {
             }),
         );
         app.add_systems(Update, update_placing_preview);
+
+        register_building_upgrade::<Storage>(app);
+        register_building_upgrade::<ProvidePopulation>(app);
+    }
+}
+
+impl BuildingUpgrade for ProvidePopulation {
+    fn add_systems(app: &mut App) {
+        app.add_systems(Update, upgrade_houses);
+    }
+    const BASE_COST: i32 = 20;
+}
+
+fn upgrade_houses(
+    mut events: EventReader<BuildingUpgradeEvent<ProvidePopulation>>,
+    mut houses: Query<Option<&mut Spawn>>,
+    mut commands: Commands,
+) {
+    for event in events.read() {
+        if let Ok(Some(mut spawn)) = houses.get_mut(event.entity) {
+            spawn.amount += 5;
+        } else {
+            commands.entity(event.entity).insert(Spawn {
+                ent_type: EntType::Harvester,
+                amount: 5,
+            });
+        }
     }
 }
 
@@ -314,6 +342,7 @@ fn register_upgrade<U: Upgrade>(app: &mut App) {
             receive_upgrade::<U>,
         ),
     );
+    register_building_upgrade::<U>(app);
     app.register_pathfinding_towards::<CanUpgrade<U>>();
 }
 
@@ -474,6 +503,72 @@ impl Upgrade for InventoryUpgrade {
     }
 }
 
+impl<U: Upgrade> BuildingUpgrade for U {
+    fn add_systems(app: &mut App) {
+        app.add_systems(Update, assign_more_upgrades::<U>);
+    }
+    const BASE_COST: i32 = 100;
+}
+
+struct InsertOrModify<C> {
+    f: Box<dyn FnOnce(&mut C) + Send>,
+    default_value: C,
+}
+
+trait EntityCommandsExt {
+    fn insert_or_modify<C: Component>(
+        &mut self,
+        default_value: C,
+        f: impl Fn(&mut C) + Send + 'static,
+    ) -> &mut Self;
+}
+
+impl EntityCommandsExt for EntityCommands<'_, '_, '_> {
+    fn insert_or_modify<C: Component>(
+        &mut self,
+        default_value: C,
+        f: impl FnOnce(&mut C) + Send + 'static,
+    ) -> &mut Self {
+        self.add(InsertOrModify {
+            f: Box::new(f),
+            default_value,
+        })
+    }
+}
+
+impl<C: Component> EntityCommand for InsertOrModify<C> {
+    fn apply(self, id: Entity, world: &mut World) {
+        let mut entity = world.entity_mut(id);
+        if let Some(mut existing) = entity.get_mut() {
+            (self.f)(&mut existing);
+        } else {
+            entity.insert(self.default_value);
+        }
+    }
+}
+
+fn assign_more_upgrades<U: Upgrade>(
+    mut events: EventReader<BuildingUpgradeEvent<U>>,
+    mut commands: Commands,
+) {
+    for event in events.read() {
+        commands.entity(event.entity).insert_or_modify(
+            NeedToAssignUpgrades::<U> {
+                unassigned: 5,
+                phantom_data: PhantomData,
+            },
+            |existing| existing.unassigned += 5,
+        );
+        commands.entity(event.entity).insert_or_modify(
+            CanUpgrade::<U> {
+                upgrades_left: 5,
+                phantom_data: PhantomData,
+            },
+            |existing| existing.upgrades_left += 5,
+        );
+    }
+}
+
 #[derive(Component)]
 struct BuilderUpgrade;
 
@@ -495,6 +590,116 @@ struct GoingForUpgrade<T>(PhantomData<T>);
 #[derive(Component)]
 struct CanBuild;
 
+#[derive(Component)]
+struct BuildingUpgradeComponent<T> {
+    current_level: i32,
+    phantom_data: PhantomData<T>,
+}
+
+impl<T> BuildingUpgradeComponent<T> {
+    fn new() -> Self {
+        Self {
+            current_level: 0,
+            phantom_data: PhantomData,
+        }
+    }
+}
+
+trait BuildingUpgrade: Send + Sync + 'static {
+    fn add_systems(app: &mut App);
+    const BASE_COST: i32;
+}
+
+fn register_building_upgrade<T: BuildingUpgrade>(app: &mut App) {
+    app.add_systems(Update, make_hoverable::<T>);
+    app.add_systems(Update, perform_building_upgrades::<T>);
+    app.add_systems(Update, click_to_upgrade_building::<T>);
+    app.add_event::<BuildingUpgradeEvent<T>>();
+    T::add_systems(app);
+}
+
+fn make_hoverable<T: BuildingUpgrade>(
+    q: Query<Entity, Added<BuildingUpgradeComponent<T>>>,
+    mut commands: Commands,
+) {
+    for entity in q.iter() {
+        commands.entity(entity).insert(ScaleOnHover);
+    }
+}
+
+#[derive(Component)]
+struct BuildingUpgradeToPerform<T>(PhantomData<T>);
+
+fn perform_building_upgrades<T: BuildingUpgrade>(
+    buildings: Query<
+        (Entity, &NeedsResource),
+        (Changed<NeedsResource>, With<BuildingUpgradeToPerform<T>>),
+    >,
+    mut commands: Commands,
+    mut events: EventWriter<BuildingUpgradeEvent<T>>,
+) {
+    for (entity, needs) in buildings.iter() {
+        if needs.0 == 0 {
+            commands.entity(entity).remove::<NeedsResource>();
+            events.send(BuildingUpgradeEvent {
+                entity,
+                phantom_data: PhantomData,
+            });
+        }
+    }
+}
+
+fn click_to_upgrade_building<T: BuildingUpgrade>(
+    input: Res<Input<MouseButton>>,
+    mut buildings: Query<
+        (Entity, &mut BuildingUpgradeComponent<T>),
+        (Without<NeedsResource>, With<Hovered>),
+    >,
+    mut money: ResMut<Money>,
+    mut commands: Commands,
+) {
+    if !input.just_pressed(MouseButton::Left) {
+        return;
+    }
+    let Some((building, mut upgrades)) = buildings.iter_mut().next() else {
+        return;
+    };
+    let cost = (upgrades.current_level + 1) * T::BASE_COST;
+    if money.0 < cost {
+        return;
+    }
+    money.0 -= cost;
+    commands.entity(building).insert((
+        NeedsResource(cost),
+        BuildingUpgradeToPerform::<T>(PhantomData),
+    ));
+    upgrades.current_level += 1;
+}
+
+#[derive(Event)]
+struct BuildingUpgradeEvent<T> {
+    entity: Entity,
+    phantom_data: PhantomData<T>,
+}
+
+impl BuildingUpgrade for Storage {
+    fn add_systems(app: &mut App) {
+        app.add_systems(Update, building_upgrade_storage);
+    }
+    const BASE_COST: i32 = 200;
+}
+
+fn building_upgrade_storage(
+    mut events: EventReader<BuildingUpgradeEvent<Storage>>,
+    mut entities: Query<&mut Storage>,
+) {
+    for event in events.read() {
+        if let Ok(mut storage) = entities.get_mut(event.entity) {
+            storage.max += 500;
+        }
+    }
+}
+
 fn ent_types(q: Query<(Entity, &EntType), Added<EntType>>, mut commands: Commands) {
     for (entity, ent_type) in q.iter() {
         match ent_type {
@@ -505,6 +710,7 @@ fn ent_types(q: Query<(Entity, &EntType), Added<EntType>>, mut commands: Command
                         max: 500,
                     },
                     Blocking,
+                    BuildingUpgradeComponent::<Storage>::new(),
                 ));
             }
             EntType::Road => {
@@ -541,6 +747,7 @@ fn ent_types(q: Query<(Entity, &EntType), Added<EntType>>, mut commands: Command
                         upgrades_left: 5,
                         phantom_data: PhantomData,
                     },
+                    BuildingUpgradeComponent::<InventoryUpgrade>::new(),
                 ));
             }
             EntType::BuilderAcademy => {
@@ -550,6 +757,7 @@ fn ent_types(q: Query<(Entity, &EntType), Added<EntType>>, mut commands: Command
                         upgrades_left: 5,
                         phantom_data: PhantomData,
                     },
+                    BuildingUpgradeComponent::<BuilderUpgrade>::new(),
                 ));
             }
             EntType::Base => {
@@ -571,6 +779,7 @@ fn ent_types(q: Query<(Entity, &EntType), Added<EntType>>, mut commands: Command
                         ent_type: EntType::Harvester,
                         amount: 5,
                     },
+                    BuildingUpgradeComponent::<ProvidePopulation>::new(),
                 ));
             }
             EntType::Builder => {
@@ -825,7 +1034,7 @@ fn update_movement(
         };
         moving.t += time.delta_seconds() / move_time;
         if moving.t > 1.0 {
-            commands.entity(entity).remove::<Moving>().insert(Idle);
+            commands.entity(entity).remove::<Moving>().try_insert(Idle);
             pos.0 = moving.next_pos;
         }
     }
@@ -1161,6 +1370,9 @@ struct Money(i32);
 #[derive(Component)]
 struct Hovered;
 
+#[derive(Component)]
+struct IsHovered(bool);
+
 fn hover_pixel(
     cursor: Query<&cursor::WorldPos>,
     hovered: Query<Entity, With<Hovered>>,
@@ -1169,7 +1381,10 @@ fn hover_pixel(
     mut commands: Commands,
 ) {
     for entity in hovered.iter() {
-        commands.entity(entity).remove::<Hovered>();
+        commands
+            .entity(entity)
+            .remove::<Hovered>()
+            .try_insert(IsHovered(false));
     }
     if ui_handling.is_pointer_over_ui {
         return;
@@ -1179,21 +1394,28 @@ fn hover_pixel(
     };
     let cursor_pos = cursor.0.floor().as_ivec2();
     for entity in tile_map.entities_at(cursor_pos) {
-        commands.entity(entity).try_insert(Hovered);
+        commands
+            .entity(entity)
+            .try_insert((Hovered, IsHovered(true)));
     }
 }
 
 #[derive(Component)]
 struct ScaleOnHover;
 
-fn scale_hovered(mut entities: Query<(&mut Transform, Has<Hovered>), With<ScaleOnHover>>) {
-    for (mut transform, hovered) in entities.iter_mut() {
-        if hovered {
-            transform.scale = Vec3::splat(1.5);
-            transform.translation.z = 1.0;
+fn scale_hovered(
+    mut entities: Query<
+        (&mut Transform, &Sprite, &IsHovered),
+        (With<ScaleOnHover>, Changed<IsHovered>),
+    >,
+) {
+    for (mut transform, sprite, hovered) in entities.iter_mut() {
+        let size = sprite.custom_size.unwrap_or(Vec2::splat(1.0));
+        if hovered.0 {
+            let size = size.x.max(size.y);
+            transform.scale = Vec3::splat((size + 0.5) / size);
         } else {
             transform.scale = Vec3::splat(1.0);
-            transform.translation.z = 0.0;
         }
     }
 }

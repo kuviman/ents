@@ -1,5 +1,9 @@
 # Bevy POG
 
+## Bool component vs added/removed component
+
+And what about both?
+
 ## spawn entity with only type component -> populate other components pattern
 
 ## mold
