@@ -1,5 +1,9 @@
 # Bevy POG
 
+## Switching states & cleanup
+
+remembering all entities and despawning seems hard
+
 ## Bool component vs added/removed component
 
 And what about both?

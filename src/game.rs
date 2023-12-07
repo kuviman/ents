@@ -48,7 +48,7 @@ impl Plugin for GamePlugin {
         }));
 
         app.add_systems(Startup, setup_ui);
-        app.add_systems(Update, button_actions);
+        app.add_systems(Update, (unlock_buttons, button_actions));
         app.add_systems(Update, disable_buttons);
         crate::buttons::register::<ButtonAction>(app);
         app.add_systems(Startup, setup_camera);
@@ -1291,6 +1291,25 @@ struct PopulationText;
 #[derive(Component)]
 struct MoneyText;
 
+#[derive(Component)]
+struct Dependencies(HashSet<EntType>);
+
+fn unlock_buttons(
+    new_entities: Query<&EntType, Added<EntType>>,
+    mut buttons: Query<(Entity, &mut Dependencies, &mut Style)>,
+    mut commands: Commands,
+) {
+    for ent_type in new_entities.iter() {
+        for (button_entity, mut deps, mut style) in buttons.iter_mut() {
+            deps.0.remove(ent_type);
+            if deps.0.is_empty() {
+                commands.entity(button_entity).remove::<Dependencies>();
+                style.display = default();
+            }
+        }
+    }
+}
+
 fn setup_ui(mut commands: Commands) {
     // commands.spawn({
     //     let mut camera = Camera2dBundle::default();
@@ -1329,12 +1348,12 @@ fn setup_ui(mut commands: Commands) {
                 ..default()
             })
             .with_children(|bottom| {
-                for typ in [
-                    EntType::House,
-                    EntType::Road,
-                    EntType::BuilderAcademy,
-                    EntType::UpgradeInventory,
-                    EntType::Storage,
+                for (typ, deps) in [
+                    (EntType::Road, vec![]),
+                    (EntType::House, vec![EntType::Road]),
+                    (EntType::BuilderAcademy, vec![EntType::House]),
+                    (EntType::UpgradeInventory, vec![EntType::House]),
+                    (EntType::Storage, vec![EntType::House]),
                 ] {
                     bottom
                         .spawn((
@@ -1347,10 +1366,16 @@ fn setup_ui(mut commands: Commands) {
                                     justify_content: JustifyContent::Center,
                                     // vertically center child text
                                     align_items: AlignItems::Center,
+                                    display: if deps.is_empty() {
+                                        default()
+                                    } else {
+                                        Display::None
+                                    },
                                     ..default()
                                 },
                                 ..default()
                             },
+                            Dependencies(deps.into_iter().collect()),
                             ButtonAction::Spawn(typ),
                             buttons::Disabled(false),
                         ))
