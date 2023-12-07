@@ -206,8 +206,8 @@ fn update_placing_preview(
         ),
         With<PlacementPreview>,
     >,
-    roads: Query<(), With<Road>>,
-    blocking: Query<(), With<Blocking>>,
+    roads: Query<(), Or<(With<GhostRoad>, With<Road>)>>,
+    blocking: Query<(), Or<(With<Blocking>, With<BlockingGhost>)>>,
     tile_map: Res<TileMap>,
     cursor: Query<&cursor::WorldPos>,
     state: Res<State<PlayerState>>,
@@ -225,23 +225,40 @@ fn update_placing_preview(
                 size.0 = ent_type.size();
                 sprite.color = ent_type.color().with_a(0.5);
 
-                let off = match ent_type {
-                    EntType::Road => 0,
-                    _ => 1,
-                };
-
                 let rect = IRect::from_corners(cell, cell + ent_type.size() - IVec2::splat(1));
 
-                blocked.0 = (-off..ent_type.size().x + off)
-                    .flat_map(|dx| {
-                        (-off..ent_type.size().y + off).map(move |dy| cell + IVec2::new(dx, dy))
-                    })
-                    .any(|cell| {
-                        tile_map.entities_at(cell).any(|entity| {
-                            blocking.get(entity).is_ok()
-                                || (rect.contains(cell) && roads.get(entity).is_ok())
-                        })
-                    });
+                fn iterate_rect(rect: IRect) -> impl Iterator<Item = IVec2> {
+                    (rect.min.x..=rect.max.x)
+                        .flat_map(move |x| (rect.min.y..=rect.max.y).map(move |y| IVec2::new(x, y)))
+                }
+
+                let is_blocking = |cell| {
+                    tile_map
+                        .entities_at(cell)
+                        .any(|entity| blocking.get(entity).is_ok())
+                };
+
+                let is_road = |cell| {
+                    tile_map
+                        .entities_at(cell)
+                        .any(|entity| roads.get(entity).is_ok())
+                };
+
+                blocked.0 = !match ent_type {
+                    EntType::Road => {
+                        !iterate_rect(rect).any(|cell| is_blocking(cell) || is_road(cell))
+                            && iterate_rect(rect.inset(1))
+                                .filter(|&cell| !rect.contains(cell))
+                                .any(is_road)
+                    }
+                    _ => {
+                        !iterate_rect(rect).any(is_road)
+                            && !iterate_rect(rect.inset(1)).any(is_blocking)
+                            && iterate_rect(rect.inset(1))
+                                .filter(|&cell| !rect.contains(cell))
+                                .any(is_road)
+                    }
+                };
                 if blocked.0 {
                     sprite.color = Color::RED.with_a(0.5);
                     // size.0 += IVec2::splat(2);
@@ -543,6 +560,7 @@ fn ent_types(q: Query<(Entity, &EntType), Added<EntType>>, mut commands: Command
                     },
                     Blocking,
                     ProvidePopulation(5),
+                    Road,
                 ));
             }
             EntType::House => {
@@ -783,6 +801,12 @@ fn ent_harvest(
 #[derive(Component)]
 struct Road;
 
+#[derive(Component)]
+struct GhostRoad;
+
+#[derive(Component)]
+struct BlockingGhost;
+
 fn update_movement(
     mut q: Query<(Entity, &mut Pos, &mut Moving)>,
     time: Res<Time>,
@@ -894,7 +918,7 @@ fn place_ent(
     if input.just_pressed(MouseButton::Left) || input.pressed(MouseButton::Left) {
         let cost = costs.0[&ent_type];
         money.0 -= cost;
-        commands.spawn((
+        let mut entity = commands.spawn((
             SpriteBundle {
                 sprite: Sprite {
                     color: ent_type.color().with_a(0.5),
@@ -902,12 +926,16 @@ fn place_ent(
                 },
                 ..default()
             },
-            Blocking, // TODO
             Pos(pos.0),
             Size(ent_type.size()),
             Placeholder(ent_type),
             NeedsResource(cost),
         ));
+        if let EntType::Road = ent_type {
+            entity.insert(GhostRoad);
+        } else {
+            entity.insert(BlockingGhost);
+        }
     }
 }
 
