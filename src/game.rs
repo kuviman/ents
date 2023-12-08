@@ -1645,7 +1645,7 @@ fn setup_camera(
     commands.insert_resource(AmbientLight::default());
     commands.spawn(DirectionalLightBundle {
         directional_light: DirectionalLight {
-            shadows_enabled: true,
+            // TODO: checkbox? shadows_enabled: true,
             color: Color::WHITE,
             illuminance: 3000.0,
             ..default()
