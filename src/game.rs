@@ -1118,7 +1118,7 @@ fn ent_movement<EntState: Component, SearchingFor: Component>(
             if dir.distance > 1 {
                 commands
                     .entity(entity)
-                    .insert(Moving {
+                    .try_insert(Moving {
                         next_pos: ent_pos.0 + dir.dir,
                         t: 0.0,
                     })
