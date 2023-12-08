@@ -13,19 +13,16 @@ fn camera_controls(
     mouse_buttons: Res<Input<MouseButton>>,
     mut cursor_events: EventReader<CursorMoved>,
     mut wheel: EventReader<MouseWheel>,
-    mut camera: Query<(
-        &mut Transform,
-        &GlobalTransform,
-        &mut OrthographicProjection,
-        &Camera,
-    )>,
+    mut camera: Query<(&mut Transform, &GlobalTransform, &Camera)>,
     time: Res<Time>,
     mut prev_cursor_pos: Local<Vec2>,
 ) {
     const CAMERA_SPEED: f32 = 50.0;
 
-    let (mut camera_transform, global_camera_transform, mut projection, camera) =
-        camera.single_mut();
+    let Ok((mut camera_transform, global_camera_transform, camera)) = camera.get_single_mut()
+    else {
+        return;
+    };
     let mut dir = Vec2::ZERO;
 
     if keyboard.any_pressed([KeyCode::W, KeyCode::Up]) {
@@ -41,25 +38,28 @@ fn camera_controls(
         dir.x += 1.0;
     }
 
-    camera_transform.translation += dir.extend(0.0) * CAMERA_SPEED * time.delta_seconds();
+    camera_transform.translation += dir.extend(0.0).xzy() * CAMERA_SPEED * time.delta_seconds();
 
     for wheel in wheel.read() {
-        projection.scale = (projection.scale - wheel.y * 0.1).clamp(0.1, 2.0);
+        camera_transform.translation.y =
+            (camera_transform.translation.y - wheel.y).clamp(10.0, 500.0);
     }
 
     for moved in cursor_events.read() {
         if mouse_buttons.pressed(MouseButton::Middle) {
-            let Some(prev_world_pos) =
-                camera.viewport_to_world_2d(global_camera_transform, *prev_cursor_pos)
+            let Some(prev_world_pos) = camera
+                .viewport_to_world(global_camera_transform, *prev_cursor_pos)
+                .map(|ray| (ray.origin - ray.direction * ray.origin.y / ray.direction.y).xz())
             else {
                 continue;
             };
-            let Some(new_world_pos) =
-                camera.viewport_to_world_2d(global_camera_transform, moved.position)
+            let Some(new_world_pos) = camera
+                .viewport_to_world(global_camera_transform, moved.position)
+                .map(|ray| (ray.origin - ray.direction * ray.origin.y / ray.direction.y).xz())
             else {
                 continue;
             };
-            camera_transform.translation += (prev_world_pos - new_world_pos).extend(0.0);
+            camera_transform.translation += (prev_world_pos - new_world_pos).extend(0.0).xzy();
         }
         *prev_cursor_pos = moved.position;
     }

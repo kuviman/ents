@@ -3,6 +3,7 @@ use std::marker::PhantomData;
 use bevy::{
     ecs::system::{EntityCommand, EntityCommands},
     prelude::*,
+    render::mesh::shape::{Cube, Plane},
     utils::{HashMap, HashSet},
 };
 use rand::{seq::IteratorRandom, thread_rng, Rng};
@@ -52,7 +53,7 @@ impl Plugin for GamePlugin {
         app.add_systems(Update, (unlock_buttons, button_actions));
         app.add_systems(Update, disable_buttons);
         crate::buttons::register::<ButtonAction>(app);
-        app.add_systems(Startup, setup_camera);
+        app.add_systems(Startup, (setup_camera, setup_materials));
         // app.add_systems(Startup, spawn_a_LOT_of_entities);
         app.insert_resource(Money(INITIAL_MONEY));
         app.add_systems(Update, (update_money_text, update_population_text));
@@ -228,12 +229,14 @@ fn update_placing_preview(
         (
             &mut Pos,
             &mut Size,
-            &mut Sprite,
+            &mut Handle<Mesh>,
+            &mut Handle<StandardMaterial>,
             &mut Visibility,
             &mut PlacementBlocked,
         ),
         With<PlacementPreview>,
     >,
+    ent_materials: Res<EntMaterials>,
     roads: Query<(), Or<(With<GhostRoad>, With<Road>)>>,
     blocking: Query<(), Or<(With<Blocking>, With<BlockingGhost>)>>,
     tile_map: Res<TileMap>,
@@ -246,12 +249,16 @@ fn update_placing_preview(
         _ => None,
     };
     match preview.get_single_mut() {
-        Ok((mut pos, mut size, mut sprite, mut visibility, mut blocked)) => {
+        Ok((mut pos, mut size, mut mesh, mut material, mut visibility, mut blocked)) => {
             if let Some(ent_type) = ent_type {
                 let cell = cursor.single().0.floor().as_ivec2();
                 pos.0 = cell;
                 size.0 = ent_type.size();
-                sprite.color = ent_type.color().with_a(0.5);
+                *mesh = ent_materials
+                    .meshes
+                    .get(&ent_type)
+                    .cloned()
+                    .unwrap_or_default();
 
                 let rect = IRect::from_corners(cell, cell + ent_type.size() - IVec2::splat(1));
 
@@ -287,11 +294,18 @@ fn update_placing_preview(
                                 .any(is_road)
                     }
                 };
-                if blocked.0 {
-                    sprite.color = Color::RED.with_a(0.5);
-                    // size.0 += IVec2::splat(2);
-                    // pos.0 -= IVec2::splat(1);
-                };
+                *material = ent_materials
+                    .materials
+                    .get(&(
+                        ent_type,
+                        if blocked.0 {
+                            EntState::BlockedPreview
+                        } else {
+                            EntState::Preview
+                        },
+                    ))
+                    .cloned()
+                    .unwrap_or_default();
 
                 *visibility = Visibility::Visible;
             } else {
@@ -301,9 +315,8 @@ fn update_placing_preview(
         }
         Err(_) => {
             commands.spawn((
-                SpriteBundle {
+                MaterialMeshBundle::<StandardMaterial> {
                     visibility: Visibility::Hidden,
-                    transform: Transform::from_translation(Vec3::new(0.0, 0.0, 100.0)),
                     ..default()
                 },
                 Pos(IVec2::ZERO),
@@ -709,7 +722,7 @@ impl BuildingUpgrade for MonumentUpgrade {
 
 fn ent_types(
     q: Query<(Entity, &EntType), Added<EntType>>,
-    asset_server: Res<AssetServer>,
+    ent_materials: Res<EntMaterials>,
     mut commands: Commands,
 ) {
     for (entity, ent_type) in q.iter() {
@@ -809,18 +822,18 @@ fn ent_types(
             }
         }
         commands.entity(entity).insert((
-            SpriteBundle {
-                sprite: Sprite {
-                    color: ent_type.color(),
-                    ..default()
-                },
-                texture: match ent_type {
-                    EntType::Harvester | EntType::GoldHarvester | EntType::Builder => {
-                        asset_server.load("crab.png")
-                    }
-                    _ => default(),
-                },
-                transform: Transform::from_translation(Vec3::new(0.0, 0.0, ent_type.z())),
+            MaterialMeshBundle {
+                mesh: ent_materials
+                    .meshes
+                    .get(ent_type)
+                    .cloned()
+                    .unwrap_or_default(),
+                material: ent_materials
+                    .materials
+                    .get(&(*ent_type, EntState::Normal))
+                    .cloned()
+                    .unwrap_or_default(),
+                transform: Transform::from_xyz(0.0, ent_type.height(), 0.0),
                 ..default()
             },
             Size(ent_type.size()),
@@ -836,6 +849,7 @@ struct Storage {
 
 fn generate_chunks(
     noise: Res<Noise>,
+    ent_materials: Res<EntMaterials>,
     mut events: EventReader<crate::chunks::GenerateChunk>,
     mut commands: Commands,
 ) {
@@ -854,19 +868,18 @@ fn generate_chunks(
                 }
                 if pos.length_squared() > 100 {
                     pixels.push((
-                        SpriteBundle {
-                            sprite: Sprite {
-                                color: Color::hsl(
-                                    thread_rng().gen_range({
-                                        let off = 20.0;
-                                        120.0 - off..120.0 + off
-                                    }),
-                                    0.7,
-                                    0.2,
-                                ),
-                                custom_size: Some(Vec2::splat(1.0)),
-                                ..default()
-                            },
+                        MaterialMeshBundle {
+                            // TODO?
+                            // color: Color::hsl(
+                            //     thread_rng().gen_range({
+                            //         let off = 20.0;
+                            //         120.0 - off..120.0 + off
+                            //     }),
+                            //     0.7,
+                            //     0.2,
+                            // ),
+                            mesh: ent_materials.harvestable_mesh.clone(),
+                            material: ent_materials.harvestable_material.clone(),
                             ..default()
                         },
                         Pos(pos),
@@ -1063,29 +1076,22 @@ fn update_movement(
 
 fn update_transforms(
     mut q: Query<
-        (
-            &mut Transform,
-            &mut Sprite,
-            &Pos,
-            Option<&Size>,
-            Option<&Moving>,
-        ),
+        (&mut Transform, &Pos, Option<&Size>, Option<&Moving>),
         Or<(
             Changed<Pos>,
             Changed<Moving>,
             Changed<Size>,
-            Added<Sprite>,
             Added<Transform>,
         )>,
     >,
 ) {
-    for (mut transform, mut sprite, pos, size, moving) in q.iter_mut() {
+    for (mut transform, pos, size, moving) in q.iter_mut() {
         let from = pos.0;
         let size = size.map_or(IVec2::splat(1), |size| size.0);
         let (to, t) = moving.map_or((from, 0.0), |moving| (moving.next_pos, moving.t));
         transform.translation = (from.as_vec2().lerp(to.as_vec2(), t) + size.as_vec2() / 2.0)
-            .extend(transform.translation.z);
-        sprite.custom_size = Some(size.as_vec2());
+            .extend(transform.translation.y)
+            .xzy();
     }
 }
 
@@ -1130,6 +1136,7 @@ struct Placeholder(EntType);
 
 fn place_ent(
     input: Res<Input<MouseButton>>,
+    ent_materials: Res<EntMaterials>,
     mut commands: Commands,
     mut money: ResMut<Money>,
     preview: Query<(&Pos, &PlacementBlocked)>,
@@ -1150,11 +1157,17 @@ fn place_ent(
         let cost = costs.0[&ent_type];
         money.0 -= cost;
         let mut entity = commands.spawn((
-            SpriteBundle {
-                sprite: Sprite {
-                    color: ent_type.color().with_a(0.5),
-                    ..default()
-                },
+            MaterialMeshBundle {
+                mesh: ent_materials
+                    .meshes
+                    .get(&ent_type)
+                    .cloned()
+                    .unwrap_or_default(),
+                material: ent_materials
+                    .materials
+                    .get(&(ent_type, EntState::Placeholder))
+                    .cloned()
+                    .unwrap_or_default(),
                 ..default()
             },
             Pos(pos.0),
@@ -1252,11 +1265,20 @@ enum EntType {
 }
 
 impl EntType {
-    fn z(&self) -> f32 {
-        match self {
-            Self::Road => 0.0,
-            _ => 1.0,
-        }
+    fn all() -> impl Iterator<Item = Self> {
+        [
+            Self::Harvester,
+            Self::Base,
+            Self::Storage,
+            Self::House,
+            Self::UpgradeInventory,
+            Self::Road,
+            Self::GoldHarvester,
+            Self::Builder,
+            Self::BuilderAcademy,
+            Self::Monument,
+        ]
+        .into_iter()
     }
     fn color(&self) -> Color {
         match self {
@@ -1281,6 +1303,13 @@ impl EntType {
             EntType::BuilderAcademy => IVec2::new(3, 2),
             EntType::Monument => IVec2::splat(10),
             _ => IVec2::splat(1),
+        }
+    }
+
+    fn height(&self) -> f32 {
+        match self {
+            EntType::Harvester | EntType::GoldHarvester | EntType::Builder => 0.1,
+            _ => 0.0,
         }
     }
 }
@@ -1462,14 +1491,13 @@ struct ScaleOnHover;
 
 fn scale_hovered(
     mut entities: Query<
-        (&mut Transform, &Sprite, &IsHovered),
+        (&mut Transform, &EntType, &IsHovered),
         (With<ScaleOnHover>, Changed<IsHovered>),
     >,
 ) {
-    for (mut transform, sprite, hovered) in entities.iter_mut() {
-        let size = sprite.custom_size.unwrap_or(Vec2::splat(1.0));
+    for (mut transform, ent_type, hovered) in entities.iter_mut() {
         if hovered.0 {
-            let size = size.x.max(size.y);
+            let size = ent_type.size().max_element() as f32;
             transform.scale = Vec3::splat((size + 0.5) / size);
         } else {
             transform.scale = Vec3::splat(1.0);
@@ -1480,10 +1508,158 @@ fn scale_hovered(
 #[derive(Component)]
 struct Harvestable(i32);
 
-fn setup_camera(mut commands: Commands) {
+#[derive(PartialEq, Eq, Hash)]
+enum EntState {
+    Placeholder,
+    Normal,
+    Hovered,
+    BlockedPreview,
+    Preview,
+}
+
+#[derive(Resource)]
+struct EntMaterials {
+    meshes: HashMap<EntType, Handle<Mesh>>,
+    materials: HashMap<(EntType, EntState), Handle<StandardMaterial>>,
+    harvestable_mesh: Handle<Mesh>,
+    harvestable_material: Handle<StandardMaterial>,
+}
+
+fn setup_materials(
+    mut mesh_assets: ResMut<Assets<Mesh>>,
+    mut material_assets: ResMut<Assets<StandardMaterial>>,
+    asset_server: Res<AssetServer>,
+    mut commands: Commands,
+) {
+    let mut meshes = HashMap::new();
+    let mut materials = HashMap::new();
+    for ent_type in EntType::all() {
+        meshes.insert(
+            ent_type,
+            // mesh_assets.add(Mesh::from(Quad::new(ent_type.size().as_vec2()))),
+            mesh_assets.add(match ent_type {
+                EntType::Builder | EntType::GoldHarvester | EntType::Harvester => {
+                    Mesh::from(Plane::from_size(ent_type.size().as_vec2().max_element()))
+                }
+                EntType::Road | EntType::Monument => Mesh::from(Plane::from_size(1.0)),
+                _ => Mesh::from({
+                    let mut b = bevy::render::mesh::shape::Box::new(
+                        ent_type.size().x as f32,
+                        ent_type.size().max_element() as f32 / 3.0,
+                        ent_type.size().y as f32,
+                    );
+                    (b.min_y, b.max_y) = (0.0, b.max_y - b.min_y);
+                    b
+                }),
+            }),
+        );
+        let material = StandardMaterial {
+            perceptual_roughness: 1.0,
+            metallic: 0.0,
+            reflectance: 0.0,
+            alpha_mode: match ent_type {
+                EntType::Builder
+                | EntType::GoldHarvester
+                | EntType::Harvester
+                | EntType::Monument => AlphaMode::Mask(0.5),
+                _ => AlphaMode::Opaque,
+            },
+            base_color_texture: match ent_type {
+                EntType::Builder | EntType::GoldHarvester | EntType::Harvester => {
+                    Some(asset_server.load("crab.png"))
+                }
+                EntType::House => Some(asset_server.load("house_windows.png")),
+                EntType::Monument => Some(asset_server.load("bevy.png")),
+                _ => None,
+            },
+            base_color: match ent_type {
+                EntType::Builder | EntType::GoldHarvester | EntType::Harvester => Color::WHITE,
+                _ => ent_type.color(),
+            },
+            ..default()
+        };
+        materials.insert(
+            (ent_type, EntState::Hovered),
+            material_assets.add({
+                let mut material = material.clone();
+                material.base_color.set_l(0.2);
+                material
+            }),
+        );
+        materials.insert(
+            (ent_type, EntState::Placeholder),
+            material_assets.add({
+                let mut material = material.clone();
+                material.unlit = true;
+                material.alpha_mode = AlphaMode::Blend;
+                material.base_color.set_a(0.5);
+                material
+            }),
+        );
+        materials.insert(
+            (ent_type, EntState::Preview),
+            material_assets.add({
+                let mut material = material.clone();
+                material.unlit = true;
+                material.alpha_mode = AlphaMode::Blend;
+                material.base_color.set_a(0.5);
+                material
+            }),
+        );
+        materials.insert(
+            (ent_type, EntState::BlockedPreview),
+            material_assets.add({
+                let mut material = material.clone();
+                material.base_color_texture = None;
+                material.alpha_mode = AlphaMode::Blend;
+                material.base_color = Color::rgba(1.0, 0.0, 0.0, 0.5);
+                material
+            }),
+        );
+        materials.insert((ent_type, EntState::Normal), material_assets.add(material));
+    }
+    commands.insert_resource(EntMaterials {
+        meshes,
+        materials,
+        harvestable_mesh: mesh_assets.add(Mesh::from(Cube::new(1.0))),
+        harvestable_material: material_assets.add(StandardMaterial {
+            base_color: Color::GREEN,
+            ..default()
+        }),
+    });
+}
+
+fn setup_camera(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
     commands.spawn({
-        let mut camera = Camera2dBundle::new_with_far(1000.0);
-        camera.projection.scaling_mode = bevy::render::camera::ScalingMode::FixedVertical(100.0);
+        let camera = Camera3dBundle {
+            transform: Transform::from_xyz(2.0, 80.0, -20.0)
+                .looking_at(Vec3::new(0.0, 0.0, 0.0), Vec3::Y),
+            ..default()
+        };
         (camera, UiCameraConfig { show_ui: true })
+    });
+    commands.insert_resource(AmbientLight::default());
+    commands.spawn(DirectionalLightBundle {
+        directional_light: DirectionalLight {
+            shadows_enabled: true,
+            color: Color::WHITE,
+            illuminance: 3000.0,
+            ..default()
+        },
+        transform: Transform::from_xyz(-3.0, 50.0, 10.0).looking_at(Vec3::ZERO, Vec3::Y),
+        ..default()
+    });
+    commands.spawn(PbrBundle {
+        mesh: meshes.add(Mesh::from(Plane::from_size(1000.0))),
+        material: materials.add(StandardMaterial {
+            base_color: Color::DARK_GREEN,
+            ..default()
+        }),
+        transform: Transform::from_xyz(0.0, -0.001, 0.0),
+        ..default()
     });
 }

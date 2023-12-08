@@ -1,8 +1,22 @@
 # Bevy POG
 
+## AlphaMode::Blend breaks depth test
+
+WTF
+
+## camera.viewport_to_world2d even though camera is 3d?
+
+WTF
+
 ## Switching states & cleanup
 
 remembering all entities and despawning seems hard
+
+## State machine for a unit
+
+System conflicts - one system removes StateA and inserts StateB, another removes StateA and inserts StateC
+
+## EntityCommands::insert_or_update
 
 ## Bool component vs added/removed component
 

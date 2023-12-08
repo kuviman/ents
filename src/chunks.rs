@@ -26,7 +26,11 @@ fn calculate_chunks_to_generate(
         Vec2::new(window_viewport.max.x, window_viewport.min.y),
     ]
     .into_iter()
-    .filter_map(|p| camera.viewport_to_world_2d(camera_transform, p))
+    .filter_map(|p| camera.viewport_to_world(camera_transform, p))
+    .map(|ray| {
+        let t = -ray.origin.y / ray.direction.y;
+        (ray.origin + ray.direction * t).xz()
+    })
     .map(|p| Rect::from_corners(p, p))
     .reduce(|a, b| Rect::union(&a, b))
     .unwrap();
