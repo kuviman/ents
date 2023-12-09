@@ -1638,6 +1638,12 @@ fn setup_camera(
         let camera = Camera3dBundle {
             transform: Transform::from_xyz(2.0, 80.0, -20.0)
                 .looking_at(Vec3::new(0.0, 0.0, 0.0), Vec3::Y),
+            projection: Projection::Perspective(PerspectiveProjection {
+                fov: 45.0_f32.to_radians(),
+                near: 50.0,
+                far: 150.0,
+                ..default()
+            }),
             ..default()
         };
         (camera, UiCameraConfig { show_ui: true })
