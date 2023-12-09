@@ -5,6 +5,93 @@ use bevy::render::{
     render_resource::PrimitiveTopology,
 };
 
+pub fn make_resource() -> Mesh {
+    let height = 20;
+    let mut positions = Vec::<Vec3>::new();
+    let mut normals = Vec::<Vec3>::new();
+    let mut uvs = Vec::<Vec2>::new();
+    let mut indices = Vec::<usize>::new();
+    let mut add_quad = |quad: [(Vec3, Vec3, Vec2); 4]| {
+        let s = positions.len();
+        for (pos, normal, uv) in quad {
+            positions.push(pos);
+            normals.push(normal);
+            uvs.push(uv);
+        }
+        indices.push(s);
+        indices.push(s + 1);
+        indices.push(s + 2);
+        indices.push(s);
+        indices.push(s + 2);
+        indices.push(s + 3);
+    };
+    let mid_uv = 1.0 / (1.0 + height as f32);
+    for i in 0..height {
+        let h = 0.5 - i as f32;
+        add_quad([
+            (Vec3::new(-0.5, h, -0.5), Vec3::Y, Vec2::new(0.0, 0.0)),
+            (Vec3::new(0.5, h, -0.5), Vec3::Y, Vec2::new(1.0, 0.0)),
+            (Vec3::new(0.5, h, 0.5), Vec3::Y, Vec2::new(1.0, mid_uv)),
+            (Vec3::new(-0.5, h, 0.5), Vec3::Y, Vec2::new(0.0, mid_uv)),
+        ]);
+    }
+
+    let bottom = -height as f32 + 1.0;
+    let top = 1.0;
+    add_quad([
+        (
+            Vec3::new(-0.5, bottom, -0.5),
+            Vec3::new(-1.0, 0.0, 1.0).normalize(),
+            Vec2::new(0.0, 1.0),
+        ),
+        (
+            Vec3::new(0.5, bottom, 0.5),
+            Vec3::new(-1.0, 0.0, 1.0).normalize(),
+            Vec2::new(1.0, 1.0),
+        ),
+        (
+            Vec3::new(0.5, top, 0.5),
+            Vec3::new(-1.0, 0.0, 1.0).normalize(),
+            Vec2::new(1.0, mid_uv),
+        ),
+        (
+            Vec3::new(-0.5, top, -0.5),
+            Vec3::new(-1.0, 0.0, 1.0).normalize(),
+            Vec2::new(0.0, mid_uv),
+        ),
+    ]);
+    add_quad([
+        (
+            Vec3::new(0.5, bottom, -0.5),
+            Vec3::new(-1.0, 0.0, 1.0).normalize(),
+            Vec2::new(0.0, 1.0),
+        ),
+        (
+            Vec3::new(-0.5, bottom, 0.5),
+            Vec3::new(-1.0, 0.0, 1.0).normalize(),
+            Vec2::new(1.0, 1.0),
+        ),
+        (
+            Vec3::new(-0.5, top, 0.5),
+            Vec3::new(-1.0, 0.0, 1.0).normalize(),
+            Vec2::new(1.0, mid_uv),
+        ),
+        (
+            Vec3::new(0.5, top, -0.5),
+            Vec3::new(-1.0, 0.0, 1.0).normalize(),
+            Vec2::new(0.0, mid_uv),
+        ),
+    ]);
+
+    Mesh::new(PrimitiveTopology::TriangleList)
+        .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
+        .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, normals)
+        .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uvs)
+        .with_indices(Some(Indices::U32(
+            indices.into_iter().map(|x| x as u32).collect(),
+        )))
+}
+
 pub fn building_mesh(size: IVec2, floor_height: f32, floors: usize) -> Mesh {
     let size = size.as_vec2();
     let sp = Box {

@@ -77,7 +77,7 @@ impl Plugin for GamePlugin {
                 ent_store,
             ),
         );
-        app.add_systems(Update, update_transforms);
+        app.add_systems(Update, (update_transforms, update_resource_transforms));
         app.add_systems(Update, update_movement);
 
         app.register_pathfinding_towards::<NonEmptyStorage>();
@@ -119,6 +119,12 @@ impl BuildingUpgrade for ProvidePopulation {
         app.add_systems(Update, upgrade_houses);
     }
     const BASE_COST: i32 = 20;
+}
+
+fn update_resource_transforms(mut q: Query<(&mut Transform, &Harvestable), Changed<Harvestable>>) {
+    for (mut transform, harvestable) in q.iter_mut() {
+        transform.translation.y = harvestable.0 as f32 - 1.0
+    }
 }
 
 fn upgrade_houses(
@@ -892,6 +898,9 @@ fn generate_chunks(
                             // ),
                             mesh: ent_materials.harvestable_mesh.clone(),
                             material: ent_materials.harvestable_material.clone(),
+                            transform: Transform::from_rotation(Quat::from_rotation_y(
+                                thread_rng().gen_range(0.0..2.0 * std::f32::consts::PI),
+                            )),
                             ..default()
                         },
                         Pos(pos),
@@ -1108,6 +1117,7 @@ fn update_transforms(
             Added<Transform>,
         )>,
     >,
+    time: Res<Time>,
 ) {
     for (mut transform, pos, size, moving) in q.iter_mut() {
         let from = pos.0;
@@ -1116,6 +1126,15 @@ fn update_transforms(
         transform.translation = (from.as_vec2().lerp(to.as_vec2(), t) + size.as_vec2() / 2.0)
             .extend(transform.translation.y)
             .xzy();
+        if let Some(moving) = moving {
+            let delta = moving.next_pos - pos.0;
+            if delta != IVec2::ZERO {
+                transform.rotation = transform.rotation.lerp(
+                    Quat::from_rotation_y(delta.as_vec2().angle_between(Vec2::X)),
+                    (time.delta_seconds() * 15.0).min(1.0),
+                );
+            }
+        }
     }
 }
 
@@ -1348,6 +1367,7 @@ impl EntType {
         match self {
             EntType::House => 9,
             EntType::BuilderAcademy | EntType::UpgradeInventory => 4,
+            EntType::Storage => 4,
             _ => 0,
         }
     }
@@ -1578,7 +1598,7 @@ fn setup_materials(
             // mesh_assets.add(Mesh::from(Quad::new(ent_type.size().as_vec2()))),
             mesh_assets.add(match ent_type {
                 EntType::Builder | EntType::GoldHarvester | EntType::Harvester => {
-                    Mesh::from(Plane::from_size(ent_type.size().as_vec2().max_element()))
+                    Mesh::from(Plane::from_size(0.75))
                 }
                 EntType::Road | EntType::Monument => Mesh::from(Plane::from_size(1.0)),
                 _ => meshes::building_mesh(
@@ -1600,12 +1620,13 @@ fn setup_materials(
                 _ => AlphaMode::Opaque,
             },
             base_color_texture: match ent_type {
-                EntType::Builder | EntType::GoldHarvester | EntType::Harvester => {
-                    Some(asset_server.load("crab.png"))
-                }
+                EntType::Harvester => Some(asset_server.load("crab.png")),
+                EntType::Builder => Some(asset_server.load("builder_crab.png")),
+                EntType::GoldHarvester => Some(asset_server.load("gold_crab.png")),
                 EntType::House => Some(asset_server.load("house.png")),
                 EntType::BuilderAcademy => Some(asset_server.load("builder_academy.png")),
                 EntType::UpgradeInventory => Some(asset_server.load("gold_academy.png")),
+                EntType::Storage => Some(asset_server.load("storage.png")),
                 EntType::Monument => Some(asset_server.load("bevy.png")),
                 _ => None,
             },
@@ -1659,9 +1680,11 @@ fn setup_materials(
     commands.insert_resource(EntMaterials {
         meshes,
         materials,
-        harvestable_mesh: mesh_assets.add(Mesh::from(Cube::new(1.0))),
+        harvestable_mesh: mesh_assets.add(meshes::make_resource()),
         harvestable_material: material_assets.add(StandardMaterial {
-            base_color: Color::GREEN,
+            alpha_mode: AlphaMode::Mask(0.5),
+            cull_mode: None,
+            base_color_texture: Some(asset_server.load("resource.png")),
             ..default()
         }),
     });
