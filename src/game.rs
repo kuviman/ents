@@ -36,12 +36,37 @@ impl Noise {
 #[derive(Component)]
 struct InventoryEntities(Vec<Entity>);
 
+#[derive(Component)]
+struct StorageLevelChild(Entity);
+
+const BASE_HEIGHT: f32 = 1.0;
+
+fn update_storage_visuals(
+    storages: Query<
+        (
+            Option<&BuildingUpgradeComponent<Storage>>,
+            &Storage,
+            &StorageLevelChild,
+        ),
+        Changed<Storage>,
+    >,
+    mut levels: Query<&mut Transform>,
+) {
+    for (upgrade, storage, child) in storages.iter() {
+        let mut child_transform = levels.get_mut(child.0).unwrap();
+        child_transform.translation.y = storage.current as f32 / storage.max as f32
+            * (upgrade.map_or(BASE_HEIGHT, |upgrade| {
+                (upgrade.current_level + 1) as f32 * EntType::Storage.upgrade_height()
+            }) - 0.1);
+    }
+}
+
 impl Plugin for GamePlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(Noise(noise::OpenSimplex::new(thread_rng().gen())));
         app.add_systems(Update, generate_chunks);
 
-        app.add_systems(Update, harvestable_color);
+        app.add_systems(Update, update_storage_visuals);
 
         app.insert_resource(EntCosts({
             let mut costs = HashMap::new();
@@ -51,7 +76,7 @@ impl Plugin for GamePlugin {
             costs.insert(EntType::UpgradeInventory, 50);
             costs.insert(EntType::Storage, 100);
             costs.insert(EntType::BuilderAcademy, 50);
-            costs.insert(EntType::Monument, 5000);
+            costs.insert(EntType::Monument, 1000);
             costs
         }));
 
@@ -119,6 +144,7 @@ impl Plugin for GamePlugin {
 
         register_building_upgrade::<Storage>(app);
         register_building_upgrade::<ProvidePopulation>(app);
+        register_building_upgrade::<MonumentUpgrade>(app);
     }
 }
 
@@ -150,7 +176,11 @@ fn bavy_monument(
                     .spawn((
                         PbrBundle {
                             mesh: ent_materials.bavy_mesh.clone(),
-                            material: ent_materials.bavy_materials[birds.len()].clone(),
+                            material: ent_materials
+                                .bavy_materials
+                                .get(birds.len())
+                                .cloned()
+                                .unwrap_or_default(),
                             transform: Transform::from_xyz(0.0, birds.len() as f32 + 1.0, 0.0),
                             ..default()
                         },
@@ -162,7 +192,7 @@ fn bavy_monument(
         }
     }
     for (mut transform, bird) in birds.iter_mut() {
-        transform.rotate_z(bird.0 * time.delta_seconds());
+        transform.rotate_y(bird.0 * time.delta_seconds() * 0.3);
     }
 }
 
@@ -194,7 +224,11 @@ fn inventory_entities(
                 commands
                     .spawn(PbrBundle {
                         mesh: ent_materials.inventory_thing_mesh.clone(),
-                        material: ent_materials.inventory_thing_material[stack.len()].clone(),
+                        material: ent_materials
+                            .inventory_thing_material
+                            .get(stack.len())
+                            .cloned()
+                            .unwrap_or_default(),
                         transform: Transform::from_xyz(0.0, (stack.len() + 1) as f32 * 0.1, 0.0)
                             .with_rotation(Quat::from_rotation_y(
                                 thread_rng().gen_range(0.0..2.0 * std::f32::consts::PI),
@@ -571,14 +605,6 @@ fn spawn_ents(
 #[derive(Component)]
 struct ProvidePopulation(usize);
 
-fn harvestable_color(mut q: Query<(&mut Sprite, &Harvestable), Changed<Harvestable>>) {
-    for (mut sprite, harvestable) in q.iter_mut() {
-        sprite
-            .color
-            .set_a(0.8 + 0.2 * (harvestable.0 as f32 / 10.0).min(1.0));
-    }
-}
-
 #[derive(Component)]
 struct CanUpgrade<T> {
     upgrades_left: usize,
@@ -816,29 +842,53 @@ struct MonumentUpgrade;
 
 impl BuildingUpgrade for MonumentUpgrade {
     fn add_systems(_app: &mut App) {}
-    const BASE_COST: i32 = 10000;
+    const BASE_COST: i32 = 1000;
 }
 
 fn ent_types(
-    q: Query<(Entity, &EntType), Added<EntType>>,
+    q: Query<(Entity, &Pos, &EntType), Added<EntType>>,
     ent_materials: Res<EntMaterials>,
     mut commands: Commands,
 ) {
-    for (entity, ent_type) in q.iter() {
+    for (entity, pos, ent_type) in q.iter() {
         match ent_type {
             EntType::Monument => {
-                commands
-                    .entity(entity)
-                    .insert((Blocking, BuildingUpgradeComponent::<MonumentUpgrade>::new()));
+                commands.entity(entity).insert((
+                    Blocking,
+                    {
+                        let mut up = BuildingUpgradeComponent::<MonumentUpgrade>::new();
+                        up.current_level = 0;
+                        up
+                    },
+                    BavyBirds(vec![]),
+                ));
             }
             EntType::Storage => {
+                let level = commands
+                    .spawn(PbrBundle {
+                        mesh: ent_materials.level_mesh.clone(),
+                        material: ent_materials.level_material.clone(),
+                        transform: Transform::from_scale(Vec3::new(
+                            ent_type.size().x as f32,
+                            1.0,
+                            ent_type.size().y as f32,
+                        ))
+                        .with_translation(
+                            (pos.0.as_vec2() + ent_type.size().as_vec2() / 2.0)
+                                .extend(0.0)
+                                .xzy(),
+                        ),
+                        ..default()
+                    })
+                    .id();
                 commands.entity(entity).insert((
                     Storage {
                         current: 0,
-                        max: 500,
+                        max: 50,
                     },
                     Blocking,
                     BuildingUpgradeComponent::<Storage>::new(),
+                    StorageLevelChild(level),
                 ));
             }
             EntType::Road => {
@@ -891,13 +941,31 @@ fn ent_types(
                 ));
             }
             EntType::Base => {
+                let level = commands
+                    .spawn(PbrBundle {
+                        mesh: ent_materials.level_mesh.clone(),
+                        material: ent_materials.level_material.clone(),
+                        transform: Transform::from_scale(Vec3::new(
+                            ent_type.size().x as f32,
+                            1.0,
+                            ent_type.size().y as f32,
+                        ))
+                        .with_translation(
+                            (pos.0.as_vec2() + ent_type.size().as_vec2() / 2.0)
+                                .extend(0.0)
+                                .xzy(),
+                        ),
+                        ..default()
+                    })
+                    .id();
                 commands.entity(entity).insert((
                     Storage {
                         current: INITIAL_MONEY,
-                        max: 1000,
+                        max: 100,
                     },
                     Blocking,
                     ProvidePopulation(5),
+                    StorageLevelChild(level),
                     Road,
                 ));
             }
@@ -1033,7 +1101,7 @@ fn ent_store(
             .find(|&entity| storage.get(entity).is_ok());
         if let Some(storage_entity) = try_to_store {
             let mut storage = storage.get_mut(storage_entity).unwrap();
-            let amount_to_store = inventory.current.min(storage.max - storage.current);
+            let amount_to_store = inventory.current.min(storage.max - storage.current).max(0);
             inventory.current -= amount_to_store;
             storage.current += amount_to_store;
             money.0 += amount_to_store;
@@ -1063,7 +1131,10 @@ fn take_resource(
             .find(|&entity| storage.get(entity).is_ok());
         if let Some(storage_entity) = try_to_store {
             let mut storage = storage.get_mut(storage_entity).unwrap();
-            let amount_to_take = storage.current.min(inventory.max - inventory.current);
+            let amount_to_take = storage
+                .current
+                .min(inventory.max - inventory.current)
+                .max(0);
             inventory.current += amount_to_take;
             storage.current -= amount_to_take;
             if inventory.current == inventory.max {
@@ -1674,6 +1745,8 @@ struct EntMaterials {
     inventory_thing_material: Vec<Handle<StandardMaterial>>,
     bavy_mesh: Handle<Mesh>,
     bavy_materials: Vec<Handle<StandardMaterial>>,
+    level_mesh: Handle<Mesh>,
+    level_material: Handle<StandardMaterial>,
 }
 
 fn setup_materials(
@@ -1692,7 +1765,9 @@ fn setup_materials(
                 EntType::Builder | EntType::GoldHarvester | EntType::Harvester => {
                     Mesh::from(Plane::from_size(0.75))
                 }
-                EntType::Road | EntType::Monument => Mesh::from(Plane::from_size(1.0)),
+                EntType::Road | EntType::Monument => {
+                    Mesh::from(Plane::from_size(ent_type.size().max_element() as f32))
+                }
                 _ => meshes::building_mesh(
                     ent_type.size(),
                     ent_type.upgrade_height(),
@@ -1706,10 +1781,17 @@ fn setup_materials(
             metallic: 0.0,
             reflectance: 0.0,
             alpha_mode: match ent_type {
-                EntType::Builder | EntType::GoldHarvester | EntType::Harvester => {
-                    AlphaMode::Mask(0.5)
-                }
+                EntType::Builder
+                | EntType::GoldHarvester
+                | EntType::Harvester
+                | EntType::Base
+                | EntType::Storage => AlphaMode::Mask(0.5),
                 _ => AlphaMode::Opaque,
+            },
+            cull_mode: if let EntType::Storage | EntType::Base = ent_type {
+                None
+            } else {
+                default()
             },
             base_color_texture: match ent_type {
                 EntType::Harvester => Some(asset_server.load("crab.png")),
@@ -1719,7 +1801,8 @@ fn setup_materials(
                 EntType::BuilderAcademy => Some(asset_server.load("builder_academy.png")),
                 EntType::UpgradeInventory => Some(asset_server.load("gold_academy.png")),
                 EntType::Storage => Some(asset_server.load("storage.png")),
-                _ => None,
+                EntType::Base => Some(asset_server.load("base.png")),
+                EntType::Road | EntType::Monument => None,
             },
             base_color: match ent_type {
                 EntType::Builder | EntType::GoldHarvester | EntType::Harvester => Color::WHITE,
@@ -1796,6 +1879,7 @@ fn setup_materials(
         bavy_materials: (0..3)
             .map(|i| {
                 material_assets.add(StandardMaterial {
+                    alpha_mode: AlphaMode::Mask(0.5),
                     base_color: {
                         let x = 0.5 + i as f32 / 2.0 * 0.5;
                         Color::rgb(x, x, x)
@@ -1805,6 +1889,11 @@ fn setup_materials(
                 })
             })
             .collect(),
+        level_mesh: mesh_assets.add(Plane::from_size(1.0).into()),
+        level_material: material_assets.add(StandardMaterial {
+            base_color_texture: Some(asset_server.load("level.png")),
+            ..default()
+        }),
     });
 }
 
