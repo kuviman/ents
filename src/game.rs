@@ -1346,7 +1346,7 @@ impl EntType {
 
     fn max_upgrades(&self) -> usize {
         match self {
-            EntType::House => 10,
+            EntType::House => 9,
             _ => 5,
         }
     }
@@ -1583,7 +1583,7 @@ fn setup_materials(
                 _ => meshes::building_mesh(
                     ent_type.size(),
                     ent_type.upgrade_height(),
-                    ent_type.max_upgrades(),
+                    ent_type.max_upgrades() + 1,
                 ),
             }),
         );
