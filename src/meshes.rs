@@ -5,6 +5,50 @@ use bevy::render::{
     render_resource::PrimitiveTopology,
 };
 
+pub fn make_plane(size: f32) -> Mesh {
+    // here this is split in the z and x directions if one ever needs asymmetrical subdivision
+    // two Plane struct fields would need to be added instead of the single subdivisions field
+    let z_vertex_count = 2;
+    let x_vertex_count = 2;
+    let num_vertices = (z_vertex_count * x_vertex_count) as usize;
+    let num_indices = ((z_vertex_count - 1) * (x_vertex_count - 1) * 6) as usize;
+    let up = Vec3::Y.to_array();
+
+    let mut positions: Vec<[f32; 3]> = Vec::with_capacity(num_vertices);
+    let mut normals: Vec<[f32; 3]> = Vec::with_capacity(num_vertices);
+    let mut uvs: Vec<[f32; 2]> = Vec::with_capacity(num_vertices);
+    let mut indices: Vec<u32> = Vec::with_capacity(num_indices);
+
+    for z in 0..z_vertex_count {
+        for x in 0..x_vertex_count {
+            let tx = x as f32 / (x_vertex_count - 1) as f32;
+            let tz = z as f32 / (z_vertex_count - 1) as f32;
+            let pos = [(-0.5 + tx) * size, 0.0, (-0.5 + tz) * size];
+            positions.push(pos);
+            normals.push(up);
+            uvs.push([pos[0], pos[2]]);
+        }
+    }
+
+    for y in 0..z_vertex_count - 1 {
+        for x in 0..x_vertex_count - 1 {
+            let quad = y * x_vertex_count + x;
+            indices.push(quad + x_vertex_count + 1);
+            indices.push(quad + 1);
+            indices.push(quad + x_vertex_count);
+            indices.push(quad);
+            indices.push(quad + x_vertex_count);
+            indices.push(quad + 1);
+        }
+    }
+
+    Mesh::new(PrimitiveTopology::TriangleList)
+        .with_indices(Some(Indices::U32(indices)))
+        .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
+        .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, normals)
+        .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uvs)
+}
+
 pub fn make_resource() -> Mesh {
     let height = 20;
     let mut positions = Vec::<Vec3>::new();

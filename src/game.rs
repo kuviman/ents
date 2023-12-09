@@ -3,7 +3,10 @@ use std::marker::PhantomData;
 use bevy::{
     ecs::system::{EntityCommand, EntityCommands},
     prelude::*,
-    render::mesh::shape::{Cube, Plane},
+    render::{
+        mesh::shape::Plane,
+        texture::{ImageAddressMode, ImageLoaderSettings, ImageSampler, ImageSamplerDescriptor},
+    },
     utils::{HashMap, HashSet},
 };
 use rand::{seq::IteratorRandom, thread_rng, Rng};
@@ -29,6 +32,9 @@ impl Noise {
         noise::NoiseFn::get(&self.0, [pos.x as f64, pos.y as f64]) as f32
     }
 }
+
+#[derive(Component)]
+struct InventoryEntities(Vec<Entity>);
 
 impl Plugin for GamePlugin {
     fn build(&self, app: &mut App) {
@@ -77,6 +83,7 @@ impl Plugin for GamePlugin {
                 ent_store,
             ),
         );
+        app.add_systems(Update, inventory_entities);
         app.add_systems(Update, (update_transforms, update_resource_transforms));
         app.add_systems(Update, update_movement);
 
@@ -108,9 +115,54 @@ impl Plugin for GamePlugin {
             }),
         );
         app.add_systems(Update, update_placing_preview);
+        app.add_systems(Update, bavy_monument);
 
         register_building_upgrade::<Storage>(app);
         register_building_upgrade::<ProvidePopulation>(app);
+    }
+}
+
+#[derive(Component)]
+struct BavyBirds(Vec<Entity>);
+
+#[derive(Component)]
+struct BavyBird(f32);
+
+fn bavy_monument(
+    ent_materials: Res<EntMaterials>,
+    mut q: Query<
+        (
+            Entity,
+            &mut BavyBirds,
+            &BuildingUpgradeComponent<MonumentUpgrade>,
+        ),
+        Changed<BuildingUpgradeComponent<MonumentUpgrade>>,
+    >,
+    mut birds: Query<(&mut Transform, &BavyBird)>,
+    mut commands: Commands,
+    time: Res<Time>,
+) {
+    for (entity, mut birds, upgrades) in q.iter_mut() {
+        let birds = &mut birds.0;
+        while birds.len() < upgrades.current_level as usize {
+            birds.push(
+                commands
+                    .spawn((
+                        PbrBundle {
+                            mesh: ent_materials.bavy_mesh.clone(),
+                            material: ent_materials.bavy_materials[birds.len()].clone(),
+                            transform: Transform::from_xyz(0.0, birds.len() as f32 + 1.0, 0.0),
+                            ..default()
+                        },
+                        BavyBird(birds.len() as f32 + 1.0),
+                    ))
+                    .set_parent(entity)
+                    .id(),
+            );
+        }
+    }
+    for (mut transform, bird) in birds.iter_mut() {
+        transform.rotate_z(bird.0 * time.delta_seconds());
     }
 }
 
@@ -124,6 +176,35 @@ impl BuildingUpgrade for ProvidePopulation {
 fn update_resource_transforms(mut q: Query<(&mut Transform, &Harvestable), Changed<Harvestable>>) {
     for (mut transform, harvestable) in q.iter_mut() {
         transform.translation.y = harvestable.0 as f32 - 1.0
+    }
+}
+
+fn inventory_entities(
+    ent_materials: Res<EntMaterials>,
+    mut ents: Query<(Entity, &mut InventoryEntities, &Inventory), Changed<Inventory>>,
+    mut commands: Commands,
+) {
+    for (ent, mut stack, inv) in ents.iter_mut() {
+        let stack = &mut stack.0;
+        while stack.len() > inv.current as _ {
+            commands.entity(stack.pop().unwrap()).despawn();
+        }
+        while stack.len() < inv.current as _ {
+            stack.push(
+                commands
+                    .spawn(PbrBundle {
+                        mesh: ent_materials.inventory_thing_mesh.clone(),
+                        material: ent_materials.inventory_thing_material[stack.len()].clone(),
+                        transform: Transform::from_xyz(0.0, (stack.len() + 1) as f32 * 0.1, 0.0)
+                            .with_rotation(Quat::from_rotation_y(
+                                thread_rng().gen_range(0.0..2.0 * std::f32::consts::PI),
+                            )),
+                        ..default()
+                    })
+                    .set_parent(ent)
+                    .id(),
+            );
+        }
     }
 }
 
@@ -385,7 +466,7 @@ fn receive_upgrade<U: Upgrade>(
                 let mut upgrade = upgrade_shops.get_mut(upgrade_shop_entity).unwrap();
                 if upgrade.upgrades_left > 0 {
                     upgrade.upgrades_left -= 1;
-                    commands.entity(ent).despawn();
+                    commands.entity(ent).despawn_recursive();
                     commands.spawn((Pos(ent_pos.0), U::new_ent_type()));
                     // commands
                     //     .entity(ent)
@@ -767,6 +848,7 @@ fn ent_types(
                 commands.entity(entity).insert((
                     CanMove,
                     Inventory { current: 0, max: 1 },
+                    InventoryEntities(vec![]),
                     Idle,
                     CanHavest,
                     UsesPopulation,
@@ -781,6 +863,7 @@ fn ent_types(
                         current: 0,
                         max: 10,
                     },
+                    InventoryEntities(vec![]),
                     Idle,
                     CanHavest,
                     UsesPopulation,
@@ -835,6 +918,7 @@ fn ent_types(
                     Idle,
                     CanBuild,
                     Inventory { current: 0, max: 5 },
+                    InventoryEntities(vec![]),
                     TakingResource,
                 ));
             }
@@ -1098,7 +1182,10 @@ fn update_movement(
 fn update_upgrade_transforms<U: BuildingUpgrade>(
     mut q: Query<
         (&mut Transform, &EntType, &BuildingUpgradeComponent<U>),
-        Changed<BuildingUpgradeComponent<U>>,
+        (
+            Changed<BuildingUpgradeComponent<U>>,
+            Without<BuildingUpgradeComponent<MonumentUpgrade>>,
+        ),
     >,
 ) {
     for (mut transform, ent_type, upgrade) in q.iter_mut() {
@@ -1368,6 +1455,7 @@ impl EntType {
             EntType::House => 9,
             EntType::BuilderAcademy | EntType::UpgradeInventory => 4,
             EntType::Storage => 4,
+            EntType::Monument => 3,
             _ => 0,
         }
     }
@@ -1582,6 +1670,10 @@ struct EntMaterials {
     materials: HashMap<(EntType, EntState), Handle<StandardMaterial>>,
     harvestable_mesh: Handle<Mesh>,
     harvestable_material: Handle<StandardMaterial>,
+    inventory_thing_mesh: Handle<Mesh>,
+    inventory_thing_material: Vec<Handle<StandardMaterial>>,
+    bavy_mesh: Handle<Mesh>,
+    bavy_materials: Vec<Handle<StandardMaterial>>,
 }
 
 fn setup_materials(
@@ -1609,14 +1701,14 @@ fn setup_materials(
             }),
         );
         let material = StandardMaterial {
+            fog_enabled: true,
             perceptual_roughness: 1.0,
             metallic: 0.0,
             reflectance: 0.0,
             alpha_mode: match ent_type {
-                EntType::Builder
-                | EntType::GoldHarvester
-                | EntType::Harvester
-                | EntType::Monument => AlphaMode::Mask(0.5),
+                EntType::Builder | EntType::GoldHarvester | EntType::Harvester => {
+                    AlphaMode::Mask(0.5)
+                }
                 _ => AlphaMode::Opaque,
             },
             base_color_texture: match ent_type {
@@ -1627,12 +1719,12 @@ fn setup_materials(
                 EntType::BuilderAcademy => Some(asset_server.load("builder_academy.png")),
                 EntType::UpgradeInventory => Some(asset_server.load("gold_academy.png")),
                 EntType::Storage => Some(asset_server.load("storage.png")),
-                EntType::Monument => Some(asset_server.load("bevy.png")),
                 _ => None,
             },
             base_color: match ent_type {
                 EntType::Builder | EntType::GoldHarvester | EntType::Harvester => Color::WHITE,
                 EntType::House => Color::WHITE,
+                EntType::Monument => Color::DARK_GRAY,
                 _ => ent_type.color(),
             },
             ..default()
@@ -1687,6 +1779,32 @@ fn setup_materials(
             base_color_texture: Some(asset_server.load("resource.png")),
             ..default()
         }),
+        inventory_thing_material: (0..10)
+            .map(|i| {
+                material_assets.add(StandardMaterial {
+                    base_color: Color::GREEN.with_l(0.2 + i as f32 / 10.0 * 0.5).with_h(
+                        thread_rng().gen_range(Color::GREEN.h() - 50.0..Color::GREEN.h() + 50.0),
+                    ),
+                    fog_enabled: true,
+                    ..default()
+                })
+            })
+            .collect(),
+        inventory_thing_mesh: mesh_assets.add(Plane::from_size(0.25).into()),
+        bavy_mesh: mesh_assets
+            .add(Plane::from_size(EntType::Monument.size().max_element() as f32).into()),
+        bavy_materials: (0..3)
+            .map(|i| {
+                material_assets.add(StandardMaterial {
+                    base_color: {
+                        let x = 0.5 + i as f32 / 2.0 * 0.5;
+                        Color::rgb(x, x, x)
+                    },
+                    base_color_texture: Some(asset_server.load("bavy.png")),
+                    ..default()
+                })
+            })
+            .collect(),
     });
 }
 
@@ -1694,6 +1812,7 @@ fn setup_camera(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    asset_server: Res<AssetServer>,
 ) {
     commands.spawn({
         let camera = Camera3dBundle {
@@ -1707,7 +1826,18 @@ fn setup_camera(
             }),
             ..default()
         };
-        (camera, UiCameraConfig { show_ui: true })
+        (
+            camera,
+            FogSettings {
+                color: Color::SEA_GREEN,
+                falloff: FogFalloff::Linear {
+                    start: 90.0,
+                    end: 150.0,
+                },
+                ..default()
+            },
+            UiCameraConfig { show_ui: true },
+        )
     });
     commands.insert_resource(AmbientLight {
         brightness: 0.7,
@@ -1723,10 +1853,22 @@ fn setup_camera(
         transform: Transform::from_xyz(-3.0, 50.0, 10.0).looking_at(Vec3::ZERO, Vec3::Y),
         ..default()
     });
+    let ground_texture: Handle<Image> = asset_server.load_with_settings("ground.png", {
+        let sampler_desc = ImageSamplerDescriptor {
+            address_mode_u: ImageAddressMode::Repeat,
+            address_mode_v: ImageAddressMode::Repeat,
+            ..Default::default()
+        };
+
+        move |s: &mut ImageLoaderSettings| {
+            s.sampler = ImageSampler::Descriptor(sampler_desc.clone());
+        }
+    });
     commands.spawn(PbrBundle {
-        mesh: meshes.add(Mesh::from(Plane::from_size(1000.0))),
+        mesh: meshes.add(meshes::make_plane(1000.0)),
         material: materials.add(StandardMaterial {
-            base_color: Color::DARK_GREEN,
+            base_color_texture: Some(ground_texture),
+            perceptual_roughness: 1.0,
             ..default()
         }),
         transform: Transform::from_xyz(0.0, -0.001, 0.0),

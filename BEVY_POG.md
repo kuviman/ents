@@ -1,5 +1,9 @@
 # Bevy POG
 
+## Repeated textures
+
+<https://github.com/bevyengine/bevy/issues/399#issuecomment-1794059638>
+
 ## AlphaMode::Blend breaks depth test
 
 WTF
