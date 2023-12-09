@@ -13,13 +13,14 @@ fn camera_controls(
     mouse_buttons: Res<Input<MouseButton>>,
     mut cursor_events: EventReader<CursorMoved>,
     mut wheel: EventReader<MouseWheel>,
-    mut camera: Query<(&mut Transform, &GlobalTransform, &Camera)>,
+    mut camera: Query<(&mut Transform, &GlobalTransform, &Camera, &mut Projection)>,
     time: Res<Time>,
     mut prev_cursor_pos: Local<Vec2>,
 ) {
     const CAMERA_SPEED: f32 = 50.0;
 
-    let Ok((mut camera_transform, global_camera_transform, camera)) = camera.get_single_mut()
+    let Ok((mut camera_transform, global_camera_transform, camera, mut projection)) =
+        camera.get_single_mut()
     else {
         return;
     };
@@ -38,11 +39,25 @@ fn camera_controls(
         dir.x += 1.0;
     }
 
+    let normalize = |v: Vec3| -> Vec2 { v.xz().normalize() };
+
+    let dir = normalize(camera_transform.local_x()) * dir.x
+        + normalize(camera_transform.local_y()) * dir.y;
+
     camera_transform.translation += dir.extend(0.0).xzy() * CAMERA_SPEED * time.delta_seconds();
 
     for wheel in wheel.read() {
-        camera_transform.translation.y =
-            (camera_transform.translation.y - wheel.y).clamp(10.0, 500.0);
+        let Projection::Perspective(projection) = &mut *projection else {
+            unreachable!()
+        };
+        projection.fov = (projection.fov
+            - wheel.y
+                * match wheel.unit {
+                    bevy::input::mouse::MouseScrollUnit::Line => 10.0,
+                    bevy::input::mouse::MouseScrollUnit::Pixel => 1.0,
+                }
+                * 1e-2)
+            .clamp(10.0_f32.to_radians(), 60.0_f32.to_radians());
     }
 
     for moved in cursor_events.read() {
