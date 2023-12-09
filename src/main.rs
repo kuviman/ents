@@ -10,6 +10,7 @@ mod game;
 mod pathfind;
 mod tile_map;
 mod ui;
+mod meshes;
 
 fn main() {
     App::new()

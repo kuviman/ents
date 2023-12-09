@@ -11,7 +11,7 @@ use rand::{seq::IteratorRandom, thread_rng, Rng};
 const INITIAL_MONEY: i32 = 50;
 
 use crate::{
-    buttons, cursor,
+    buttons, cursor, meshes,
     pathfind::{self, AppExt, Blocking, Pathfinding},
     tile_map::{Pos, Size, TileMap},
     ui,
@@ -627,6 +627,7 @@ fn register_building_upgrade<T: BuildingUpgrade>(app: &mut App) {
     app.add_systems(Update, make_hoverable::<T>);
     app.add_systems(Update, perform_building_upgrades::<T>);
     app.add_systems(Update, click_to_upgrade_building::<T>);
+    app.add_systems(Update, update_upgrade_transforms::<T>);
     app.add_event::<BuildingUpgradeEvent<T>>();
     T::add_systems(app);
 }
@@ -1074,6 +1075,18 @@ fn update_movement(
     }
 }
 
+fn update_upgrade_transforms<U: BuildingUpgrade>(
+    mut q: Query<
+        (&mut Transform, &EntType, &BuildingUpgradeComponent<U>),
+        Changed<BuildingUpgradeComponent<U>>,
+    >,
+) {
+    for (mut transform, ent_type, upgrade) in q.iter_mut() {
+        transform.translation.y =
+            ent_type.height() + upgrade.current_level as f32 * ent_type.upgrade_height();
+    }
+}
+
 fn update_transforms(
     mut q: Query<
         (&mut Transform, &Pos, Option<&Size>, Option<&Moving>),
@@ -1312,6 +1325,13 @@ impl EntType {
             _ => 0.0,
         }
     }
+
+    fn upgrade_height(&self) -> f32 {
+        match self {
+            EntType::House => 1.0,
+            _ => 1.0,
+        }
+    }
 }
 
 #[derive(Debug, Event, Component, Copy, Clone)]
@@ -1542,6 +1562,9 @@ fn setup_materials(
                     Mesh::from(Plane::from_size(ent_type.size().as_vec2().max_element()))
                 }
                 EntType::Road | EntType::Monument => Mesh::from(Plane::from_size(1.0)),
+                EntType::House => {
+                    meshes::building_mesh(ent_type.size(), ent_type.upgrade_height(), 10)
+                }
                 _ => Mesh::from({
                     let mut b = bevy::render::mesh::shape::Box::new(
                         ent_type.size().x as f32,
@@ -1568,12 +1591,13 @@ fn setup_materials(
                 EntType::Builder | EntType::GoldHarvester | EntType::Harvester => {
                     Some(asset_server.load("crab.png"))
                 }
-                EntType::House => Some(asset_server.load("house_windows.png")),
+                EntType::House => Some(asset_server.load("house.png")),
                 EntType::Monument => Some(asset_server.load("bevy.png")),
                 _ => None,
             },
             base_color: match ent_type {
                 EntType::Builder | EntType::GoldHarvester | EntType::Harvester => Color::WHITE,
+                EntType::House => Color::WHITE,
                 _ => ent_type.color(),
             },
             ..default()
