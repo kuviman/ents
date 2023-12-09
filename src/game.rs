@@ -11,7 +11,7 @@ use rand::{seq::IteratorRandom, thread_rng, Rng};
 const INITIAL_MONEY: i32 = 50;
 
 use crate::{
-    buttons, cursor,
+    audio, buttons, cursor,
     pathfind::{self, AppExt, Blocking, Pathfinding},
     tile_map::{Pos, Size, TileMap},
     ui,
@@ -32,6 +32,7 @@ impl Noise {
 
 impl Plugin for GamePlugin {
     fn build(&self, app: &mut App) {
+        app.add_plugins(audio::Plugin);
         app.insert_resource(Noise(noise::OpenSimplex::new(thread_rng().gen())));
         app.add_systems(Update, generate_chunks);
 
@@ -1048,7 +1049,7 @@ struct Road;
 struct GhostRoad;
 
 #[derive(Component)]
-struct BlockingGhost;
+pub struct BlockingGhost;
 
 fn update_movement(
     mut q: Query<(Entity, &mut Pos, &mut Moving)>,
@@ -1132,7 +1133,7 @@ fn ent_movement<EntState: Component, SearchingFor: Component>(
 struct NeedsResource(i32);
 
 #[derive(Component)]
-struct Placeholder(EntType);
+pub struct Placeholder(pub EntType);
 
 fn place_ent(
     input: Res<Input<MouseButton>>,
@@ -1251,7 +1252,7 @@ fn button_actions(
 }
 
 #[derive(Debug, PartialEq, Eq, Copy, Clone, Hash, Component)]
-enum EntType {
+pub enum EntType {
     Harvester,
     Base,
     Storage,
@@ -1509,7 +1510,7 @@ fn scale_hovered(
 struct Harvestable(i32);
 
 #[derive(PartialEq, Eq, Hash)]
-enum EntState {
+pub enum EntState {
     Placeholder,
     Normal,
     Hovered,

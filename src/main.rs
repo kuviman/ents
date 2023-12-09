@@ -2,6 +2,7 @@ use bevy::asset::AssetMetaCheck;
 use bevy::prelude::*;
 use bevy::DefaultPlugins;
 
+mod audio;
 mod buttons;
 mod camera_controls;
 mod chunks;

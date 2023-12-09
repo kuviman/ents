@@ -14,7 +14,14 @@
         };
 
         rust = (pkgs.rust-bin.stable.latest.default.override {
-          extensions = [ "rust-src" ];
+          extensions = [ 
+            "cargo"
+            "clippy"
+            "rust-src"
+            "rust-analyzer"
+            "rustc"
+            "rustfmt"
+          ];
           targets = [ "wasm32-unknown-unknown" ];
         });
 
