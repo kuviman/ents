@@ -63,7 +63,6 @@ fn update_storage_visuals(
 
 impl Plugin for GamePlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(audio::Plugin);
         app.insert_resource(Noise(noise::OpenSimplex::new(thread_rng().gen())));
         app.add_systems(Update, generate_chunks);
 
@@ -1485,14 +1484,14 @@ impl EntType {
     fn color(&self) -> Color {
         match self {
             EntType::Harvester => Color::BLACK,
-            EntType::Base => Color::RED,
+            EntType::Base => Color::WHITE,
             EntType::Storage => Color::BEIGE,
             EntType::House => Color::PURPLE,
             EntType::UpgradeInventory => Color::YELLOW,
             EntType::Road => Color::GRAY,
             EntType::GoldHarvester => Color::GOLD.with_l(0.1),
             EntType::Builder => Color::PINK.with_l(0.2),
-            EntType::BuilderAcademy => Color::PINK,
+            EntType::BuilderAcademy => Color::WHITE,
             EntType::Monument => Color::AQUAMARINE,
         }
     }

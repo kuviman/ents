@@ -43,7 +43,7 @@ fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>) {
         source: audio_sources.music.clone(),
         settings: PlaybackSettings {
             mode: bevy::audio::PlaybackMode::Loop,
-            volume: Volume::Relative(VolumeLevel::new(0.5)),
+            volume: Volume::Relative(VolumeLevel::new(0.35)),
             ..default()
         },
     });
