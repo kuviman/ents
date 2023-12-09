@@ -1605,7 +1605,7 @@ fn setup_materials(
                 }
                 EntType::House => Some(asset_server.load("house.png")),
                 EntType::BuilderAcademy => Some(asset_server.load("builder_academy.png")),
-                EntType::UpgradeInventory => Some(asset_server.load("builder_academy.png")),
+                EntType::UpgradeInventory => Some(asset_server.load("gold_academy.png")),
                 EntType::Monument => Some(asset_server.load("bevy.png")),
                 _ => None,
             },
