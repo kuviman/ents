@@ -1672,7 +1672,10 @@ fn setup_camera(
         };
         (camera, UiCameraConfig { show_ui: true })
     });
-    commands.insert_resource(AmbientLight::default());
+    commands.insert_resource(AmbientLight {
+        brightness: 0.7,
+        ..default()
+    });
     commands.spawn(DirectionalLightBundle {
         directional_light: DirectionalLight {
             // TODO: checkbox? shadows_enabled: true,
