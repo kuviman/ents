@@ -646,19 +646,27 @@ struct BuildingUpgradeToPerform<T>(PhantomData<T>);
 
 fn perform_building_upgrades<T: BuildingUpgrade>(
     buildings: Query<
-        (Entity, &NeedsResource),
+        (
+            Entity,
+            &EntType,
+            &BuildingUpgradeComponent<T>,
+            &NeedsResource,
+        ),
         (Changed<NeedsResource>, With<BuildingUpgradeToPerform<T>>),
     >,
     mut commands: Commands,
     mut events: EventWriter<BuildingUpgradeEvent<T>>,
 ) {
-    for (entity, needs) in buildings.iter() {
+    for (entity, ent_type, upgrade, needs) in buildings.iter() {
         if needs.0 == 0 {
             commands.entity(entity).remove::<NeedsResource>();
             events.send(BuildingUpgradeEvent {
                 entity,
                 phantom_data: PhantomData,
             });
+            if upgrade.current_level >= ent_type.max_upgrades() as _ {
+                commands.entity(entity).remove::<ScaleOnHover>();
+            }
         }
     }
 }
@@ -666,7 +674,7 @@ fn perform_building_upgrades<T: BuildingUpgrade>(
 fn click_to_upgrade_building<T: BuildingUpgrade>(
     input: Res<Input<MouseButton>>,
     mut buildings: Query<
-        (Entity, &mut BuildingUpgradeComponent<T>),
+        (Entity, &EntType, &mut BuildingUpgradeComponent<T>),
         (Without<NeedsResource>, With<Hovered>),
     >,
     mut money: ResMut<Money>,
@@ -675,9 +683,12 @@ fn click_to_upgrade_building<T: BuildingUpgrade>(
     if !input.just_pressed(MouseButton::Left) {
         return;
     }
-    let Some((building, mut upgrades)) = buildings.iter_mut().next() else {
+    let Some((building, ent_type, mut upgrades)) = buildings.iter_mut().next() else {
         return;
     };
+    if upgrades.current_level >= ent_type.max_upgrades() as _ {
+        return;
+    }
     let cost = (upgrades.current_level + 1) * T::BASE_COST;
     if money.0 < cost {
         return;
@@ -1332,6 +1343,13 @@ impl EntType {
             _ => 1.0,
         }
     }
+
+    fn max_upgrades(&self) -> usize {
+        match self {
+            EntType::House => 10,
+            _ => 5,
+        }
+    }
 }
 
 #[derive(Debug, Event, Component, Copy, Clone)]
@@ -1562,18 +1580,11 @@ fn setup_materials(
                     Mesh::from(Plane::from_size(ent_type.size().as_vec2().max_element()))
                 }
                 EntType::Road | EntType::Monument => Mesh::from(Plane::from_size(1.0)),
-                EntType::House => {
-                    meshes::building_mesh(ent_type.size(), ent_type.upgrade_height(), 10)
-                }
-                _ => Mesh::from({
-                    let mut b = bevy::render::mesh::shape::Box::new(
-                        ent_type.size().x as f32,
-                        ent_type.size().max_element() as f32 / 3.0,
-                        ent_type.size().y as f32,
-                    );
-                    (b.min_y, b.max_y) = (0.0, b.max_y - b.min_y);
-                    b
-                }),
+                _ => meshes::building_mesh(
+                    ent_type.size(),
+                    ent_type.upgrade_height(),
+                    ent_type.max_upgrades(),
+                ),
             }),
         );
         let material = StandardMaterial {
