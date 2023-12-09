@@ -41,19 +41,19 @@ pub fn building_mesh(size: IVec2, floor_height: f32, floors: usize) -> Mesh {
         (
             [sp.min_x, sp.max_y, sp.min_z],
             [0.0, 0.0, -1.0],
-            [mid_x_uv, 0.0],
-        ),
-        ([sp.max_x, sp.max_y, sp.min_z], [0.0, 0.0, -1.0], [0.0, 0.0]),
-        (
-            [sp.max_x, sp.min_y, sp.min_z],
-            [0.0, 0.0, -1.0],
             [0.0, mid_y_uv],
         ),
         (
-            [sp.min_x, sp.min_y, sp.min_z],
+            [sp.max_x, sp.max_y, sp.min_z],
             [0.0, 0.0, -1.0],
             [mid_x_uv, mid_y_uv],
         ),
+        (
+            [sp.max_x, sp.min_y, sp.min_z],
+            [0.0, 0.0, -1.0],
+            [mid_x_uv, 0.0],
+        ),
+        ([sp.min_x, sp.min_y, sp.min_z], [0.0, 0.0, -1.0], [0.0, 0.0]),
         // Right
         (
             [sp.max_x, sp.min_y, sp.min_z],

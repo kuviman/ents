@@ -1347,7 +1347,8 @@ impl EntType {
     fn max_upgrades(&self) -> usize {
         match self {
             EntType::House => 9,
-            _ => 5,
+            EntType::BuilderAcademy | EntType::UpgradeInventory => 4,
+            _ => 0,
         }
     }
 }
@@ -1603,6 +1604,8 @@ fn setup_materials(
                     Some(asset_server.load("crab.png"))
                 }
                 EntType::House => Some(asset_server.load("house.png")),
+                EntType::BuilderAcademy => Some(asset_server.load("builder_academy.png")),
+                EntType::UpgradeInventory => Some(asset_server.load("builder_academy.png")),
                 EntType::Monument => Some(asset_server.load("bevy.png")),
                 _ => None,
             },
