@@ -57,7 +57,7 @@ fn camera_controls(
                     bevy::input::mouse::MouseScrollUnit::Pixel => 1.0,
                 }
                 * 1e-2)
-            .clamp(10.0_f32.to_radians(), 60.0_f32.to_radians());
+            .clamp(5.0_f32.to_radians(), 60.0_f32.to_radians());
     }
 
     for moved in cursor_events.read() {
