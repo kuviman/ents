@@ -22,6 +22,7 @@ impl bevy::app::Plugin for Plugin {
 #[derive(Resource)]
 struct AudioSources {
     music: Handle<AudioSource>,
+    crab_rave: Handle<AudioSource>,
     button_hover: Handle<AudioSource>,
     button_press: Handle<AudioSource>,
     construct: Handle<AudioSource>,
@@ -32,6 +33,7 @@ struct AudioSources {
 fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>) {
     let audio_sources = AudioSources {
         music: asset_server.load("crabBOP.ogg"),
+        crab_rave: asset_server.load("crabJAM.ogg"),
         button_hover: asset_server.load("button_hover.ogg"),
         button_press: asset_server.load("button_press.ogg"),
         construct: asset_server.load("construct.ogg"),
