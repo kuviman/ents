@@ -3,7 +3,7 @@ use bevy_kira_audio::prelude::*;
 
 use crate::{
     buttons::Disabled,
-    game::{EntType, Placeholder, WinState},
+    game::{EntType, NeedsResource, Placeholder, WinState},
 };
 
 pub struct Plugin;
@@ -128,25 +128,32 @@ fn audio_constructed(
     audio_sources: Res<AudioSources>,
     audio: Res<Audio>,
     new_entities: Query<&EntType, Added<EntType>>,
+    existing: Query<&EntType>,
+    mut finished_upgrades: RemovedComponents<NeedsResource>,
 ) {
+    let mut play = false;
+    for entity in finished_upgrades.read() {
+        if existing.get(entity).is_ok() {
+            play = true;
+        }
+    }
     for entity in new_entities.iter() {
         if matches!(
             entity,
-            EntType::Harvester
-                | EntType::Base
+            EntType::Base
                 | EntType::Storage
                 | EntType::House
                 | EntType::UpgradeInventory
                 | EntType::BuilderAcademy
                 | EntType::Monument
         ) {
-            audio
-                .play(audio_sources.constructed.clone())
-                .with_volume(0.25);
-
-            // dont play audio for more than once entity
-            // for this step ( overlapping sounds are loud )
+            play = true;
             break;
         }
+    }
+    if play {
+        audio
+            .play(audio_sources.constructed.clone())
+            .with_volume(0.25);
     }
 }

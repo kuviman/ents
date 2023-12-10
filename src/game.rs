@@ -1452,7 +1452,7 @@ fn ent_movement<EntState: Component, SearchingFor: Component>(
 }
 
 #[derive(Component)]
-struct NeedsResource(i32, i32);
+pub struct NeedsResource(i32, i32);
 
 #[derive(Component)]
 pub struct Placeholder(pub EntType);
@@ -1752,7 +1752,7 @@ fn tooltip(
     mut q: Query<(&mut Text, &mut Style), With<Tooltip>>,
     window: Query<&Window, With<PrimaryWindow>>,
     ui_scale: Res<UiScale>,
-    hovered: Query<(), (With<Hovered>, With<ScaleOnHover>)>,
+    hovered: Query<(), (With<Hovered>, With<ScaleOnHover>, Without<NeedsResource>)>,
     buttons: Query<(&ButtonAction, &Interaction)>,
     costs: Res<EntCosts>,
 ) {
@@ -2052,16 +2052,12 @@ struct ScaleOnHover;
 
 fn scale_hovered(
     mut entities: Query<
-        (&mut Transform, &EntType, &IsHovered),
-        (
-            With<ScaleOnHover>,
-            Without<NeedsResource>,
-            Changed<IsHovered>,
-        ),
+        (&mut Transform, &EntType, &IsHovered, Has<NeedsResource>),
+        (With<ScaleOnHover>, Changed<IsHovered>),
     >,
 ) {
-    for (mut transform, ent_type, hovered) in entities.iter_mut() {
-        if hovered.0 {
+    for (mut transform, ent_type, hovered, needs) in entities.iter_mut() {
+        if hovered.0 && !needs {
             let size = ent_type.size().max_element() as f32;
             transform.scale = Vec3::splat((size + 0.5) / size);
         } else {
