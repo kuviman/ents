@@ -1,4 +1,4 @@
-use std::marker::PhantomData;
+use std::{default, marker::PhantomData};
 
 use bevy::{
     ecs::system::{EntityCommand, EntityCommands},
@@ -62,11 +62,31 @@ fn update_storage_visuals(
     }
 }
 
+#[derive(States, Default, Debug, PartialEq, Eq, Hash, Clone)]
+enum WinState {
+    #[default]
+    NoWin,
+    CrabRave,
+}
+
+fn start_crabrave(
+    monuments: Query<&BuildingUpgradeComponent<MonumentUpgrade>, Without<NeedsResource>>,
+    mut next_state: ResMut<NextState<WinState>>,
+) {
+    if monuments.iter().any(|upgrade| upgrade.current_level == 3) {
+        next_state.set(WinState::CrabRave);
+    }
+}
+
 impl Plugin for GamePlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(Noise(noise::OpenSimplex::new(thread_rng().gen())));
         app.add_systems(Update, generate_chunks);
         app.add_systems(Update, tooltip);
+
+        app.add_systems(Update, start_crabrave.run_if(in_state(WinState::NoWin)));
+        app.add_systems(Update, crabrave.run_if(in_state(WinState::CrabRave)));
+        app.add_state::<WinState>();
 
         app.add_systems(Update, update_storage_visuals);
 
@@ -143,7 +163,7 @@ impl Plugin for GamePlugin {
         register_upgrade::<BuilderUpgrade>(app);
 
         app.add_state::<PlayerState>();
-        app.add_systems(Update, update_time_text);
+        app.add_systems(Update, update_time_text.run_if(in_state(WinState::NoWin)));
 
         app.add_systems(
             Update,
@@ -1372,7 +1392,16 @@ pub struct Moving {
     pub t: f32,
 }
 
+fn crabrave(mut crabs: Query<&mut Transform, With<CanMove>>, time: Res<Time>) {
+    for mut transform in crabs.iter_mut() {
+        transform.rotation = Quat::from_rotation_y(
+            (time.elapsed_seconds() * 10.0).sin() * std::f32::consts::PI / 4.0,
+        );
+    }
+}
+
 fn ent_movement<EntState: Component, SearchingFor: Component>(
+    win_state: Res<State<WinState>>,
     pathfind_ents: Res<pathfind::Ents>,
     ents: Query<(Entity, &Pos), (With<CanMove>, With<Idle>, With<EntState>)>,
     blocking: Query<(&Pos, &Size), With<Blocking>>,
@@ -1380,6 +1409,9 @@ fn ent_movement<EntState: Component, SearchingFor: Component>(
     pathfinding: Res<Pathfinding<SearchingFor>>,
     mut commands: Commands,
 ) {
+    if matches!(win_state.get(), WinState::CrabRave) {
+        return;
+    }
     for (entity, ent_pos) in ents.iter() {
         if let Some(dir) = pathfinding.pathfind(&pathfind_ents, ent_pos.0) {
             if dir.distance > 1 {
