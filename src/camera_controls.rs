@@ -53,10 +53,10 @@ fn camera_controls(
         projection.fov = (projection.fov
             - wheel.y
                 * match wheel.unit {
-                    bevy::input::mouse::MouseScrollUnit::Line => 10.0,
+                    bevy::input::mouse::MouseScrollUnit::Line => 51.0,
                     bevy::input::mouse::MouseScrollUnit::Pixel => 1.0,
                 }
-                * 1e-2)
+                * 1e-3)
             .clamp(5.0_f32.to_radians(), 60.0_f32.to_radians());
     }
 
