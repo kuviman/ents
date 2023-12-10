@@ -8,6 +8,7 @@ use bevy::{
         texture::{ImageAddressMode, ImageLoaderSettings, ImageSampler, ImageSamplerDescriptor},
     },
     utils::{HashMap, HashSet},
+    window::PrimaryWindow,
 };
 use rand::{seq::IteratorRandom, thread_rng, Rng};
 
@@ -65,6 +66,7 @@ impl Plugin for GamePlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(Noise(noise::OpenSimplex::new(thread_rng().gen())));
         app.add_systems(Update, generate_chunks);
+        app.add_systems(Update, tooltip);
 
         app.add_systems(Update, update_storage_visuals);
 
@@ -87,7 +89,15 @@ impl Plugin for GamePlugin {
         app.add_systems(Startup, (setup_camera, setup_materials));
         // app.add_systems(Startup, spawn_a_LOT_of_entities);
         app.insert_resource(Money(INITIAL_MONEY));
-        app.add_systems(Update, (update_money_text, update_population_text));
+        app.add_systems(
+            Update,
+            (
+                update_money_text,
+                update_population_text::<CanReceiveUpgrades, CrabsText>,
+                update_population_text::<Gold, GoldText>,
+                update_population_text::<CanBuild, BuildersText>,
+            ),
+        );
         app.add_systems(Update, scale_hovered);
         app.add_systems(Update, hovering.run_if(in_state(PlayerState::Normal)));
         app.add_systems(
@@ -770,12 +780,23 @@ trait BuildingUpgrade: Send + Sync + 'static {
 }
 
 fn register_building_upgrade<T: BuildingUpgrade>(app: &mut App) {
+    app.add_systems(Update, tooltip_upgrade::<T>);
     app.add_systems(Update, make_hoverable::<T>);
     app.add_systems(Update, perform_building_upgrades::<T>);
     app.add_systems(Update, click_to_upgrade_building::<T>);
     app.add_systems(Update, update_upgrade_transforms::<T>);
     app.add_event::<BuildingUpgradeEvent<T>>();
     T::add_systems(app);
+}
+
+fn tooltip_upgrade<T: BuildingUpgrade>(
+    mut q: Query<&mut Text, With<Tooltip>>,
+    hovered: Query<&BuildingUpgradeComponent<T>, With<Hovered>>,
+) {
+    if let Some(upgrade) = hovered.iter().next() {
+        let cost = (upgrade.current_level + 1) * T::BASE_COST;
+        q.single_mut().sections[0].value = cost.to_string();
+    }
 }
 
 fn make_hoverable<T: BuildingUpgrade>(
@@ -951,6 +972,7 @@ fn ent_types(
                     CanHavest,
                     UsesPopulation,
                     Harvesting,
+                    Gold,
                 ));
             }
             EntType::UpgradeInventory => {
@@ -1605,27 +1627,28 @@ enum ButtonAction {
 
 fn update_money_text(mut money_text: Query<&mut Text, With<MoneyText>>, money: Res<Money>) {
     for mut money_text in money_text.iter_mut() {
-        money_text.sections[0].value = format!("MONEY: {}", money.0);
-    }
-}
-
-fn update_population_text(
-    mut text: Query<&mut Text, With<PopulationText>>,
-    population_providers: Query<&ProvidePopulation>,
-    population_users: Query<&UsesPopulation>,
-) {
-    let max: usize = population_providers
-        .iter()
-        .map(|population| population.0)
-        .sum();
-    let current = population_users.iter().count();
-    for mut money_text in text.iter_mut() {
-        money_text.sections[0].value = format!("POPULATION: {current}/{max}");
+        money_text.sections[0].value = format!("{}", money.0);
     }
 }
 
 #[derive(Component)]
-struct PopulationText;
+struct Gold;
+
+fn update_population_text<Filter: Component, TextFilter: Component>(
+    mut crabs_text: Query<&mut Text, With<TextFilter>>,
+    crabs: Query<(), With<Filter>>,
+) {
+    crabs_text.single_mut().sections[0].value = crabs.iter().len().to_string();
+}
+
+#[derive(Component)]
+struct CrabsText;
+
+#[derive(Component)]
+struct BuildersText;
+
+#[derive(Component)]
+struct GoldText;
 
 #[derive(Component)]
 struct MoneyText;
@@ -1649,6 +1672,43 @@ fn unlock_buttons(
     }
 }
 
+#[derive(Component)]
+struct Tooltip;
+
+fn tooltip(
+    mut q: Query<(&mut Text, &mut Style), With<Tooltip>>,
+    window: Query<&Window, With<PrimaryWindow>>,
+    ui_scale: Res<UiScale>,
+    hovered: Query<(), (With<Hovered>, With<ScaleOnHover>)>,
+    buttons: Query<(&ButtonAction, &Interaction)>,
+    costs: Res<EntCosts>,
+) {
+    let (mut text, mut style) = q.single_mut();
+    let Some(mut pos) = window.single().cursor_position() else {
+        return;
+    };
+    pos.y = window.single().height() - pos.y;
+    let pos = pos / ui_scale.0 as f32;
+    style.left = Val::Px(pos.x);
+    style.bottom = Val::Px(pos.y);
+
+    style.display = Display::None;
+    if hovered.iter().next().is_some() {
+        style.display = default();
+    } else if let Some(cost) = buttons.iter().find_map(|(action, interaction)| {
+        if let Interaction::Hovered = interaction {
+            match action {
+                ButtonAction::Spawn(typ) => costs.0.get(typ).copied(),
+            }
+        } else {
+            None
+        }
+    }) {
+        text.sections[0].value = cost.to_string();
+        style.display = default();
+    }
+}
+
 fn setup_ui(asset_server: Res<AssetServer>, mut commands: Commands) {
     // commands.spawn({
     //     let mut camera = Camera2dBundle::default();
@@ -1665,6 +1725,26 @@ fn setup_ui(asset_server: Res<AssetServer>, mut commands: Commands) {
             ..default()
         })
         .with_children(|root| {
+            root.spawn((
+                TextBundle {
+                    z_index: ZIndex::Global(10000),
+                    style: Style {
+                        position_type: PositionType::Absolute,
+                        ..default()
+                    },
+                    background_color: BackgroundColor(Color::GRAY),
+                    text: Text::from_section(
+                        "tooltip",
+                        TextStyle {
+                            font_size: 32.0,
+                            color: Color::BLACK,
+                            ..default()
+                        },
+                    ),
+                    ..default()
+                },
+                Tooltip,
+            ));
             root.spawn(NodeBundle {
                 style: Style {
                     flex_direction: FlexDirection::Column,
@@ -1673,8 +1753,79 @@ fn setup_ui(asset_server: Res<AssetServer>, mut commands: Commands) {
                 ..default()
             })
             .with_children(|info| {
-                info.spawn((TextBundle::from_section("$$$", default()), MoneyText));
-                info.spawn((TextBundle::from_section("POP", default()), PopulationText));
+                let text_style = TextStyle {
+                    font_size: 32.0,
+                    color: Color::BLACK,
+                    ..default()
+                };
+                info.spawn(NodeBundle::default()).with_children(|money| {
+                    money.spawn(ImageBundle {
+                        image: UiImage::new(asset_server.load("icons/money.png")),
+                        style: Style {
+                            margin: UiRect {
+                                right: Val::Px(10.0),
+                                ..default()
+                            },
+                            ..default()
+                        },
+                        ..default()
+                    });
+                    money.spawn((
+                        TextBundle::from_section("$$$", text_style.clone()),
+                        MoneyText,
+                    ));
+                });
+                info.spawn(NodeBundle::default()).with_children(|crabs| {
+                    crabs.spawn(ImageBundle {
+                        image: UiImage::new(asset_server.load("icons/crab.png")),
+                        style: Style {
+                            margin: UiRect {
+                                right: Val::Px(10.0),
+                                ..default()
+                            },
+                            ..default()
+                        },
+                        ..default()
+                    });
+                    crabs.spawn((
+                        TextBundle::from_section("crabs", text_style.clone()),
+                        CrabsText,
+                    ));
+                });
+                info.spawn(NodeBundle::default()).with_children(|crabs| {
+                    crabs.spawn(ImageBundle {
+                        image: UiImage::new(asset_server.load("icons/builders.png")),
+                        style: Style {
+                            margin: UiRect {
+                                right: Val::Px(10.0),
+                                ..default()
+                            },
+                            ..default()
+                        },
+                        ..default()
+                    });
+                    crabs.spawn((
+                        TextBundle::from_section("bulders", text_style.clone()),
+                        BuildersText,
+                    ));
+                });
+                info.spawn(NodeBundle::default()).with_children(|crabs| {
+                    crabs.spawn(ImageBundle {
+                        image: UiImage::new(asset_server.load("icons/gold.png")),
+                        style: Style {
+                            margin: UiRect {
+                                right: Val::Px(10.0),
+                                ..default()
+                            },
+                            ..default()
+                        },
+                        ..default()
+                    });
+                    crabs.spawn((
+                        TextBundle::from_section("gold", text_style.clone()),
+                        GoldText,
+                    ));
+                });
             });
             root.spawn(NodeBundle {
                 style: Style {
@@ -1709,6 +1860,7 @@ fn setup_ui(asset_server: Res<AssetServer>, mut commands: Commands) {
                                     width: Val::Px(60.0),
                                     height: Val::Px(60.0),
                                     border: UiRect::all(Val::Px(5.0)),
+                                    margin: UiRect::all(Val::Px(5.0)),
                                     // horizontally center child text
                                     justify_content: JustifyContent::Center,
                                     // vertically center child text
