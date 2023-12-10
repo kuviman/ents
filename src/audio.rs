@@ -5,7 +5,7 @@ use bevy::{
 
 use crate::{
     buttons::Disabled,
-    game::{BlockingGhost, EntState, EntType, Placeholder},
+    game::{EntType, Placeholder},
 };
 
 pub struct Plugin;
@@ -53,7 +53,7 @@ fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>) {
 
 fn audio_buttons(
     mut commands: Commands,
-    mut audio_sources: Res<AudioSources>,
+    audio_sources: Res<AudioSources>,
     mut button_interactions: Query<
         (&Interaction, Option<&Disabled>),
         (Changed<Interaction>, With<Button>),
@@ -82,7 +82,7 @@ fn audio_buttons(
 
 fn audio_construct(
     mut commands: Commands,
-    mut audio_sources: Res<AudioSources>,
+    audio_sources: Res<AudioSources>,
     new_placeholders: Query<&Placeholder, Added<Placeholder>>,
 ) {
     for placeholder in new_placeholders.iter() {
@@ -100,7 +100,6 @@ fn audio_construct(
                         volume: Volume::Relative(VolumeLevel::new(2.0)),
                         ..default()
                     },
-                    ..default()
                 });
             }
             EntType::Road => {
@@ -110,7 +109,6 @@ fn audio_construct(
                         volume: Volume::Relative(VolumeLevel::new(2.0)),
                         ..default()
                     },
-                    ..default()
                 });
             }
             _ => {}
@@ -120,7 +118,7 @@ fn audio_construct(
 
 fn audio_constructed(
     mut commands: Commands,
-    mut audio_sources: Res<AudioSources>,
+    audio_sources: Res<AudioSources>,
     new_entities: Query<&EntType, Added<EntType>>,
 ) {
     for entity in new_entities.iter() {
@@ -140,7 +138,6 @@ fn audio_constructed(
                     volume: Volume::Relative(VolumeLevel::new(0.25)),
                     ..default()
                 },
-                ..default()
             });
 
             // dont play audio for more than once entity
