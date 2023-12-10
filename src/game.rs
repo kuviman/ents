@@ -1649,7 +1649,7 @@ fn unlock_buttons(
     }
 }
 
-fn setup_ui(mut commands: Commands) {
+fn setup_ui(asset_server: Res<AssetServer>, mut commands: Commands) {
     // commands.spawn({
     //     let mut camera = Camera2dBundle::default();
     //     camera.projection.scaling_mode = bevy::render::camera::ScalingMode::FixedVertical(10.0);
@@ -1706,8 +1706,8 @@ fn setup_ui(mut commands: Commands) {
                         .spawn((
                             ButtonBundle {
                                 style: Style {
-                                    width: Val::Px(100.0),
-                                    height: Val::Px(40.0),
+                                    width: Val::Px(60.0),
+                                    height: Val::Px(60.0),
                                     border: UiRect::all(Val::Px(5.0)),
                                     // horizontally center child text
                                     justify_content: JustifyContent::Center,
@@ -1727,7 +1727,22 @@ fn setup_ui(mut commands: Commands) {
                             buttons::Disabled(false),
                         ))
                         .with_children(|button| {
-                            button.spawn(TextBundle::from_section(format!("{typ:?}"), default()));
+                            button.spawn(ImageBundle {
+                                image: UiImage::new(asset_server.load(format!(
+                                    "icons/{}.png",
+                                    match typ {
+                                        EntType::House => "house",
+                                        EntType::BuilderAcademy => "builders",
+                                        EntType::Monument => "bavy",
+                                        EntType::Road => "road",
+                                        EntType::Storage => "storage",
+                                        EntType::UpgradeInventory => "gold",
+                                        _ => unreachable!(),
+                                    }
+                                ))),
+                                ..default()
+                            });
+                            // button.spawn(TextBundle::from_section(format!("{typ:?}"), default()));
                         });
                 }
             });

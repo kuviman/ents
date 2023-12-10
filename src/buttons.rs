@@ -45,14 +45,14 @@ fn button_visuals(
         (Or<(Changed<Interaction>, Changed<Disabled>)>, With<Button>),
     >,
 ) {
-    const NORMAL_BUTTON: Color = Color::rgb(0.15, 0.15, 0.15);
-    const HOVERED_BUTTON: Color = Color::rgb(0.25, 0.25, 0.25);
+    const NORMAL_BUTTON: Color = Color::rgb(0.5, 0.5, 0.5);
+    const HOVERED_BUTTON: Color = Color::rgb(0.7, 0.7, 0.7);
     const PRESSED_BUTTON: Color = Color::rgb(0.35, 0.75, 0.35);
-    const DISABLED_BUTTON: Color = Color::rgb(0.4, 0.4, 0.4);
+    const DISABLED_BUTTON: Color = Color::rgb(0.2, 0.2, 0.2);
     for (interaction, disabled, mut color, mut border_color) in &mut interaction_query {
         if disabled.map_or(false, |d| d.0) {
             *color = DISABLED_BUTTON.into();
-            border_color.0 = Color::GRAY;
+            border_color.0 = Color::BLACK;
             continue;
         }
         match *interaction {
@@ -66,7 +66,7 @@ fn button_visuals(
             }
             Interaction::None => {
                 *color = NORMAL_BUTTON.into();
-                border_color.0 = Color::BLACK;
+                border_color.0 = Color::rgb(0.2, 0.2, 0.2);
             }
         }
     }
