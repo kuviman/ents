@@ -143,6 +143,7 @@ impl Plugin for GamePlugin {
         register_upgrade::<BuilderUpgrade>(app);
 
         app.add_state::<PlayerState>();
+        app.add_systems(Update, update_time_text);
 
         app.add_systems(
             Update,
@@ -1697,6 +1698,18 @@ fn unlock_buttons(
 #[derive(Component)]
 struct Tooltip;
 
+#[derive(Component)]
+struct TimeText;
+
+fn update_time_text(mut q: Query<&mut Text, With<TimeText>>, time: Res<Time>) {
+    let seconds = time.elapsed_seconds() as i32;
+    let minutes = seconds / 60;
+    let seconds = seconds % 60;
+    let hours = minutes / 60;
+    let minutes = minutes % 60;
+    q.single_mut().sections[0].value = format!("{}:{:02}:{:02}", hours, minutes, seconds);
+}
+
 fn tooltip(
     mut q: Query<(&mut Text, &mut Style), With<Tooltip>>,
     window: Query<&Window, With<PrimaryWindow>>,
@@ -1773,6 +1786,36 @@ fn setup_ui(asset_server: Res<AssetServer>, mut commands: Commands) {
                 },
                 Tooltip,
             ));
+            let text_style = TextStyle {
+                font_size: 32.0,
+                color: Color::BLACK,
+                ..default()
+            };
+            root.spawn(NodeBundle {
+                style: Style {
+                    position_type: PositionType::Absolute,
+                    right: Val::ZERO,
+                    top: Val::ZERO,
+                    ..default()
+                },
+                ..default()
+            })
+            .with_children(|info| {
+                info.spawn(NodeBundle::default()).with_children(|time| {
+                    time.spawn((TextBundle::from_section("0", text_style.clone()), TimeText));
+                    time.spawn(ImageBundle {
+                        image: UiImage::new(asset_server.load("icons/time.png")),
+                        style: Style {
+                            margin: UiRect {
+                                left: Val::Px(10.0),
+                                ..default()
+                            },
+                            ..default()
+                        },
+                        ..default()
+                    });
+                });
+            });
             root.spawn(NodeBundle {
                 style: Style {
                     flex_direction: FlexDirection::Column,
@@ -1781,11 +1824,6 @@ fn setup_ui(asset_server: Res<AssetServer>, mut commands: Commands) {
                 ..default()
             })
             .with_children(|info| {
-                let text_style = TextStyle {
-                    font_size: 32.0,
-                    color: Color::BLACK,
-                    ..default()
-                };
                 info.spawn(NodeBundle::default()).with_children(|money| {
                     money.spawn(ImageBundle {
                         image: UiImage::new(asset_server.load("icons/money.png")),
