@@ -96,6 +96,7 @@ impl Plugin for GamePlugin {
                 |state: Res<State<PlayerState>>| matches!(state.get(), PlayerState::Placing(..)),
             ),
         );
+        app.add_systems(Update, scaffolding);
         app.register_pathfinding_towards::<Harvestable>();
         app.register_pathfinding_towards::<StorageThatHasSpace>();
         app.add_systems(Update, (update_storages, visualize_storage));
@@ -162,7 +163,8 @@ fn bavy_monument(
             &mut BavyBirds,
             &BuildingUpgradeComponent<MonumentUpgrade>,
         ),
-        Changed<BuildingUpgradeComponent<MonumentUpgrade>>,
+        Without<NeedsResource>,
+        // Changed<BuildingUpgradeComponent<MonumentUpgrade>>,
     >,
     mut birds: Query<(&mut Transform, &BavyBird)>,
     mut commands: Commands,
@@ -238,6 +240,37 @@ fn inventory_entities(
                     .set_parent(ent)
                     .id(),
             );
+        }
+    }
+}
+
+fn scaffolding(
+    q: Query<(Entity, &Size), (Added<NeedsResource>, Without<GhostRoad>)>,
+    mut removed: RemovedComponents<NeedsResource>,
+    ent_materials: Res<EntMaterials>,
+    mut scaffolds: Local<HashMap<Entity, Entity>>,
+    mut commands: Commands,
+) {
+    for (entity, size) in q.iter() {
+        let child = commands
+            .spawn(PbrBundle {
+                mesh: ent_materials.scaffold_mesh.clone(),
+                material: ent_materials.scaffold_material.clone(),
+                transform: Transform::from_scale(
+                    (size.0.as_vec2() + Vec2::splat(0.1))
+                        .extend(size.0.max_element() as f32)
+                        .xzy(),
+                ),
+                ..default()
+            })
+            .set_parent(entity)
+            .id();
+        let old = scaffolds.insert(entity, child);
+        assert!(old.is_none());
+    }
+    for entity in removed.read() {
+        if let Some(child) = scaffolds.remove(&entity) {
+            commands.entity(child).despawn();
         }
     }
 }
@@ -1780,6 +1813,8 @@ struct EntMaterials {
     bavy_materials: Vec<Handle<StandardMaterial>>,
     level_mesh: Handle<Mesh>,
     level_material: Handle<StandardMaterial>,
+    scaffold_mesh: Handle<Mesh>,
+    scaffold_material: Handle<StandardMaterial>,
 }
 
 fn setup_materials(
@@ -1925,6 +1960,13 @@ fn setup_materials(
         level_mesh: mesh_assets.add(Plane::from_size(1.0).into()),
         level_material: material_assets.add(StandardMaterial {
             base_color_texture: Some(asset_server.load("level.png")),
+            ..default()
+        }),
+        scaffold_mesh: mesh_assets.add(meshes::scaffold_mesh()),
+        scaffold_material: material_assets.add(StandardMaterial {
+            alpha_mode: AlphaMode::Mask(0.5),
+            cull_mode: None,
+            base_color_texture: Some(asset_server.load("scaffolding.png")),
             ..default()
         }),
     });

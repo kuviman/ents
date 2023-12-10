@@ -136,6 +136,61 @@ pub fn make_resource() -> Mesh {
         )))
 }
 
+pub fn scaffold_mesh() -> Mesh {
+    let sp = Box {
+        min_x: -0.5,
+        min_z: -0.5,
+        max_x: 0.5,
+        max_z: 0.5,
+        min_y: -9.0,
+        max_y: 0.3,
+    };
+
+    let vertices = &[
+        // Front
+        ([sp.min_x, sp.min_y, sp.max_z], [0.0, 0.0, 1.0], [0.0, 0.0]),
+        ([sp.max_x, sp.min_y, sp.max_z], [0.0, 0.0, 1.0], [1.0, 0.0]),
+        ([sp.max_x, sp.max_y, sp.max_z], [0.0, 0.0, 1.0], [1.0, 1.0]),
+        ([sp.min_x, sp.max_y, sp.max_z], [0.0, 0.0, 1.0], [0.0, 1.0]),
+        // Back
+        ([sp.min_x, sp.max_y, sp.min_z], [0.0, 0.0, -1.0], [0.0, 1.0]),
+        ([sp.max_x, sp.max_y, sp.min_z], [0.0, 0.0, -1.0], [1.0, 1.0]),
+        ([sp.max_x, sp.min_y, sp.min_z], [0.0, 0.0, -1.0], [1.0, 0.0]),
+        ([sp.min_x, sp.min_y, sp.min_z], [0.0, 0.0, -1.0], [0.0, 0.0]),
+        // Right
+        ([sp.max_x, sp.min_y, sp.min_z], [1.0, 0.0, 0.0], [0.0, 0.0]),
+        ([sp.max_x, sp.max_y, sp.min_z], [1.0, 0.0, 0.0], [0.0, 1.0]),
+        ([sp.max_x, sp.max_y, sp.max_z], [1.0, 0.0, 0.0], [1.0, 1.0]),
+        ([sp.max_x, sp.min_y, sp.max_z], [1.0, 0.0, 0.0], [1.0, 0.0]),
+        // Left
+        ([sp.min_x, sp.min_y, sp.max_z], [-1.0, 0.0, 0.0], [1.0, 0.0]),
+        ([sp.min_x, sp.max_y, sp.max_z], [-1.0, 0.0, 0.0], [1.0, 1.0]),
+        ([sp.min_x, sp.max_y, sp.min_z], [-1.0, 0.0, 0.0], [0.0, 1.0]),
+        ([sp.min_x, sp.min_y, sp.min_z], [-1.0, 0.0, 0.0], [0.0, 0.0]),
+    ];
+
+    let positions: Vec<_> = vertices.iter().map(|(p, _, _)| *p).collect();
+    let normals: Vec<_> = vertices.iter().map(|(_, n, _)| *n).collect();
+    let uvs: Vec<_> = vertices
+        .iter()
+        .map(|(_, _, uv)| [uv[0], 1.0 - uv[1]])
+        .collect();
+
+    let indices = Indices::U32(vec![
+        0, 1, 2, 2, 3, 0, // front
+        4, 5, 6, 6, 7, 4, // back
+        8, 9, 10, 10, 11, 8, // right
+        12, 13, 14, 14, 15, 12, // left
+        16, 17, 18, 18, 19, 16, // top
+    ]);
+
+    Mesh::new(PrimitiveTopology::TriangleList)
+        .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
+        .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, normals)
+        .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uvs)
+        .with_indices(Some(indices))
+}
+
 pub fn building_mesh(size: IVec2, floor_height: f32, floors: usize) -> Mesh {
     let size = size.as_vec2();
     let sp = Box {
