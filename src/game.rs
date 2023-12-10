@@ -1311,6 +1311,8 @@ pub struct Moving {
 fn ent_movement<EntState: Component, SearchingFor: Component>(
     pathfind_ents: Res<pathfind::Ents>,
     ents: Query<(Entity, &Pos), (With<CanMove>, With<Idle>, With<EntState>)>,
+    blocking: Query<(&Pos, &Size), With<Blocking>>,
+    tile_map: Res<TileMap>,
     pathfinding: Res<Pathfinding<SearchingFor>>,
     mut commands: Commands,
 ) {
@@ -1321,6 +1323,29 @@ fn ent_movement<EntState: Component, SearchingFor: Component>(
                     .entity(entity)
                     .try_insert(Moving {
                         next_pos: ent_pos.0 + dir.dir,
+                        t: 0.0,
+                    })
+                    .remove::<Idle>();
+            }
+        } else if let Some((pos, size)) = tile_map
+            .entities_at(ent_pos.0)
+            .find_map(|entity| blocking.get(entity).ok())
+        {
+            let dx = match (ent_pos.0.x - 1 - pos.0.x).cmp(&(pos.0.x + size.0.x - ent_pos.0.x)) {
+                std::cmp::Ordering::Less => -1,
+                std::cmp::Ordering::Equal => 0,
+                std::cmp::Ordering::Greater => 1,
+            };
+            let dy = match (ent_pos.0.y - 1 - pos.0.y).cmp(&(pos.0.y + size.0.y - ent_pos.0.y)) {
+                std::cmp::Ordering::Less => -1,
+                std::cmp::Ordering::Equal => 0,
+                std::cmp::Ordering::Greater => 1,
+            };
+            if dx != 0 || dy != 0 {
+                commands
+                    .entity(entity)
+                    .try_insert(Moving {
+                        next_pos: ent_pos.0 + IVec2::new(dx, dy),
                         t: 0.0,
                     })
                     .remove::<Idle>();
