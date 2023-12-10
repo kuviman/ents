@@ -1583,12 +1583,17 @@ fn disable_buttons(
 
 fn button_actions(
     mut events: EventReader<ButtonAction>,
+    current_state: Res<State<PlayerState>>,
     mut player_state: ResMut<NextState<PlayerState>>,
 ) {
     for event in events.read() {
         match event {
             &ButtonAction::Spawn(typ) => {
-                player_state.set(PlayerState::Placing(typ));
+                if *current_state.get() != PlayerState::Placing(typ) {
+                    player_state.set(PlayerState::Placing(typ));
+                } else {
+                    player_state.set(PlayerState::Normal);
+                }
             }
         }
     }
