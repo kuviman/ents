@@ -84,7 +84,7 @@ impl Plugin for GamePlugin {
 
         app.add_systems(Startup, setup_ui);
         app.add_systems(Update, (unlock_buttons, button_actions));
-        app.add_systems(Update, disable_buttons);
+        app.add_systems(Update, (activate_buttons, disable_buttons));
         crate::buttons::register::<ButtonAction>(app);
         app.add_systems(Startup, (setup_camera, setup_materials));
         // app.add_systems(Startup, spawn_a_LOT_of_entities);
@@ -1494,6 +1494,28 @@ struct EntCosts(HashMap<EntType, i32>);
 #[derive(Component)]
 struct UsesPopulation;
 
+fn activate_buttons(
+    buttons: Query<(Entity, &ButtonAction)>,
+    state: Res<State<PlayerState>>,
+    mut commands: Commands,
+) {
+    if state.is_changed() {
+        for (entity, action) in buttons.iter() {
+            let active = match state.get() {
+                PlayerState::Placing(typ) => Some(typ),
+                _ => None,
+            } == match action {
+                ButtonAction::Spawn(typ) => Some(typ),
+            };
+            if active {
+                commands.entity(entity).insert(buttons::Active);
+            } else {
+                commands.entity(entity).remove::<buttons::Active>();
+            }
+        }
+    }
+}
+
 fn disable_buttons(
     mut buttons: Query<(&mut buttons::Disabled, &ButtonAction)>,
     money: Res<Money>,
@@ -1838,14 +1860,19 @@ fn setup_ui(asset_server: Res<AssetServer>, mut commands: Commands) {
                 ..default()
             })
             .with_children(|bottom| {
-                for (typ, deps) in [
-                    (EntType::Road, vec![]),
-                    (EntType::House, vec![EntType::Road]),
-                    (EntType::BuilderAcademy, vec![EntType::House]),
-                    (EntType::UpgradeInventory, vec![EntType::House]),
-                    (EntType::Storage, vec![EntType::House]),
+                for (typ, key, deps) in [
+                    (EntType::Road, KeyCode::Key1, vec![]),
+                    (EntType::House, KeyCode::Key2, vec![EntType::Road]),
+                    (EntType::BuilderAcademy, KeyCode::Key3, vec![EntType::House]),
+                    (
+                        EntType::UpgradeInventory,
+                        KeyCode::Key4,
+                        vec![EntType::House],
+                    ),
+                    (EntType::Storage, KeyCode::Key5, vec![EntType::House]),
                     (
                         EntType::Monument,
+                        KeyCode::Key6,
                         vec![
                             EntType::BuilderAcademy,
                             EntType::UpgradeInventory,
@@ -1876,6 +1903,7 @@ fn setup_ui(asset_server: Res<AssetServer>, mut commands: Commands) {
                             },
                             Dependencies(deps.into_iter().collect()),
                             ButtonAction::Spawn(typ),
+                            buttons::Keybind(key),
                             buttons::Disabled(false),
                         ))
                         .with_children(|button| {
