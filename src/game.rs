@@ -192,7 +192,7 @@ fn bavy_monument(
         }
     }
     for (mut transform, bird) in birds.iter_mut() {
-        transform.rotate_y(bird.0 * time.delta_seconds() * 0.3);
+        transform.rotation = Quat::from_rotation_y(bird.0 * time.elapsed_seconds() * 0.3);
     }
 }
 
