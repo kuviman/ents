@@ -808,7 +808,7 @@ fn click_to_upgrade_building<T: BuildingUpgrade>(
     }
     money.0 -= cost;
     commands.entity(building).insert((
-        NeedsResource(cost),
+        NeedsResource(cost, cost),
         BuildingUpgradeToPerform::<T>(PhantomData),
     ));
     upgrades.current_level += 1;
@@ -1252,16 +1252,24 @@ fn update_movement(
 
 fn update_upgrade_transforms<U: BuildingUpgrade>(
     mut q: Query<
-        (&mut Transform, &EntType, &BuildingUpgradeComponent<U>),
         (
-            Changed<BuildingUpgradeComponent<U>>,
+            &mut Transform,
+            &EntType,
+            Option<&NeedsResource>,
+            &BuildingUpgradeComponent<U>,
+        ),
+        (
+            // TODO ? Or<(Changed<NeedsResource>, Changed<BuildingUpgradeComponent<U>>)>,
             Without<BuildingUpgradeComponent<MonumentUpgrade>>,
         ),
     >,
 ) {
-    for (mut transform, ent_type, upgrade) in q.iter_mut() {
+    for (mut transform, ent_type, needs, upgrade) in q.iter_mut() {
         transform.translation.y =
             ent_type.height() + upgrade.current_level as f32 * ent_type.upgrade_height();
+        if let Some(needs) = needs {
+            transform.translation.y -= ent_type.upgrade_height() * needs.0 as f32 / needs.1 as f32;
+        }
     }
 }
 
@@ -1355,7 +1363,7 @@ fn ent_movement<EntState: Component, SearchingFor: Component>(
 }
 
 #[derive(Component)]
-struct NeedsResource(i32);
+struct NeedsResource(i32, i32);
 
 #[derive(Component)]
 pub struct Placeholder(pub EntType);
@@ -1399,7 +1407,7 @@ fn place_ent(
             Pos(pos.0),
             Size(ent_type.size()),
             Placeholder(ent_type),
-            NeedsResource(cost),
+            NeedsResource(cost, cost),
         ));
         if let EntType::Road = ent_type {
             entity.insert(GhostRoad);
