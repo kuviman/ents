@@ -3,10 +3,13 @@ use bevy_kira_audio::prelude::*;
 
 use crate::{
     buttons::Disabled,
-    game::{EntType, Placeholder},
+    game::{EntType, Placeholder, WinState},
 };
 
 pub struct Plugin;
+
+#[derive(Resource)]
+struct Music(Handle<AudioInstance>);
 
 impl bevy::app::Plugin for Plugin {
     fn build(&self, app: &mut App) {
@@ -14,7 +17,24 @@ impl bevy::app::Plugin for Plugin {
         app.add_systems(Update, audio_buttons);
         app.add_systems(Update, audio_construct);
         app.add_systems(Update, audio_constructed);
+        app.add_systems(OnEnter(WinState::CrabRave), start_crabrave);
     }
+}
+
+fn start_crabrave(
+    mut instances: ResMut<Assets<AudioInstance>>,
+    music: Res<Music>,
+    audio_sources: Res<AudioSources>,
+    audio: Res<Audio>,
+) {
+    audio
+        .play(audio_sources.crab_rave.clone())
+        .looped()
+        .with_volume(0.35);
+    instances
+        .get_mut(&music.0)
+        .unwrap()
+        .stop(AudioTween::linear(std::time::Duration::from_secs(1)));
 }
 
 #[derive(Resource)]
@@ -39,10 +59,13 @@ fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>, audio: Re
         constructed: asset_server.load("constructed.ogg"),
     };
 
-    audio
-        .play(audio_sources.music.clone())
-        .looped()
-        .with_volume(0.35);
+    commands.insert_resource(Music(
+        audio
+            .play(audio_sources.music.clone())
+            .looped()
+            .with_volume(0.35)
+            .handle(),
+    ));
 
     commands.insert_resource(audio_sources);
 }

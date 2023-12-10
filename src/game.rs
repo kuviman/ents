@@ -64,7 +64,7 @@ fn update_storage_visuals(
 }
 
 #[derive(States, Default, Debug, PartialEq, Eq, Hash, Clone)]
-enum WinState {
+pub enum WinState {
     #[default]
     NoWin,
     CrabRave,
@@ -437,7 +437,7 @@ fn update_placing_preview(
     match preview.get_single_mut() {
         Ok((mut pos, mut size, mut mesh, mut material, mut visibility, mut blocked)) => {
             if let Some(ent_type) = ent_type {
-                let cell = cursor.single().0.floor().as_ivec2();
+                let cell = cursor.single().0.floor().as_ivec2() - ent_type.size() / 2;
                 pos.0 = cell;
                 size.0 = ent_type.size();
                 *mesh = ent_materials
@@ -813,7 +813,7 @@ fn register_building_upgrade<T: BuildingUpgrade>(app: &mut App) {
 
 fn tooltip_upgrade<T: BuildingUpgrade>(
     mut q: Query<&mut Text, With<Tooltip>>,
-    hovered: Query<&BuildingUpgradeComponent<T>, With<Hovered>>,
+    hovered: Query<&BuildingUpgradeComponent<T>, (With<Hovered>, Without<NeedsResource>)>,
 ) {
     if let Some(upgrade) = hovered.iter().next() {
         let cost = (upgrade.current_level + 1) * T::BASE_COST;
@@ -2053,7 +2053,11 @@ struct ScaleOnHover;
 fn scale_hovered(
     mut entities: Query<
         (&mut Transform, &EntType, &IsHovered),
-        (With<ScaleOnHover>, Changed<IsHovered>),
+        (
+            With<ScaleOnHover>,
+            Without<NeedsResource>,
+            Changed<IsHovered>,
+        ),
     >,
 ) {
     for (mut transform, ent_type, hovered) in entities.iter_mut() {
