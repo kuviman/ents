@@ -1,4 +1,4 @@
-use std::{default, marker::PhantomData};
+use std::marker::PhantomData;
 
 use bevy::{
     ecs::system::{EntityCommand, EntityCommands},
