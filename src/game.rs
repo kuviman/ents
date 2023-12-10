@@ -1,6 +1,7 @@
 use std::marker::PhantomData;
 
 use bevy::{
+    core_pipeline::tonemapping::Tonemapping,
     ecs::system::{EntityCommand, EntityCommands},
     prelude::*,
     render::{
@@ -2264,6 +2265,7 @@ fn setup_camera(
                 far: 150.0,
                 ..default()
             }),
+            tonemapping: Tonemapping::None,
             ..default()
         };
         (
