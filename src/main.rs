@@ -36,6 +36,7 @@ fn main() {
                 .set(ImagePlugin::default_nearest()),
         )
         .add_plugins((
+            bevy_kira_audio::AudioPlugin,
             game::GamePlugin,
             cursor::Plugin,
             buttons::Plugin,

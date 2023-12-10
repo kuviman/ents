@@ -23,6 +23,20 @@ codegen-units = 1
 dev = ["bevy/dynamic_linking"]
 
 [dependencies]
-bevy = { version = "0.12", features = ["vorbis"] }
+bevy = { version = "0.12", default-features = false, features = [
+    "bevy_asset",
+    "bevy_winit",
+    "bevy_core_pipeline",
+    "bevy_pbr",
+    "bevy_render",
+    "bevy_text",
+    "bevy_ui",
+    "multi-threaded",
+    "png",
+    "x11",
+    "default_font",
+    "webgl2",
+] }
+bevy_kira_audio = "0.18"
 noise = "0.8.2"
 rand = "0.8"

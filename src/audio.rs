@@ -1,7 +1,5 @@
-use bevy::{
-    audio::{Volume, VolumeLevel},
-    prelude::*,
-};
+use bevy::prelude::*;
+use bevy_kira_audio::prelude::*;
 
 use crate::{
     buttons::Disabled,
