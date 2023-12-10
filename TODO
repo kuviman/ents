@@ -4,3 +4,4 @@ restart button (with confirm?)
 undo (only roads?)
 fix the audio
 no scaffolding on web
+prevent default event handling on web
