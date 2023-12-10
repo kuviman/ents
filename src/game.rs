@@ -1752,6 +1752,7 @@ fn setup_ui(asset_server: Res<AssetServer>, mut commands: Commands) {
                     z_index: ZIndex::Global(10000),
                     style: Style {
                         position_type: PositionType::Absolute,
+                        border: UiRect::all(Val::Px(5.0)),
                         ..default()
                     },
                     background_color: BackgroundColor(Color::GRAY),
@@ -1764,6 +1765,11 @@ fn setup_ui(asset_server: Res<AssetServer>, mut commands: Commands) {
                         },
                     ),
                     ..default()
+                },
+                Outline {
+                    width: Val::Px(3.0),
+                    color: Color::DARK_GRAY,
+                    offset: Val::ZERO,
                 },
                 Tooltip,
             ));
