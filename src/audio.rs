@@ -1,12 +1,20 @@
+use std::sync::atomic::{AtomicBool, Ordering};
+
 use bevy::prelude::*;
 use bevy_geng_audio::prelude::*;
 
 use crate::{
     buttons::Disabled,
-    game::{EntType, NeedsResource, Placeholder, WinState},
+    game::{
+        BuildingUpgrade, BuildingUpgradeComponent, BuildingUpgradeToPerform, EntType, Hovered,
+        Money, NeedsResource, Placeholder, ScaleOnHover, WinState,
+    },
 };
 
 pub struct Plugin;
+
+#[derive(Component)]
+struct PlayUpgradeSound;
 
 #[derive(Resource)]
 struct Music(Handle<AudioInstance>);
@@ -17,6 +25,7 @@ impl bevy::app::Plugin for Plugin {
         app.add_systems(Update, audio_buttons);
         app.add_systems(Update, audio_construct);
         app.add_systems(Update, audio_constructed);
+        app.add_systems(Update, audio_building_hover);
         app.add_systems(OnEnter(WinState::CrabRave), start_crabrave);
     }
 }
@@ -29,7 +38,6 @@ fn start_crabrave(
 ) {
     audio
         .play(audio_sources.crab_rave.clone())
-        .looped()
         .with_volume(0.35);
     instances.get_mut(&music.0).unwrap().stop();
     // .stop(AudioTween::linear(std::time::Duration::from_secs(1)));
@@ -91,6 +99,27 @@ fn audio_buttons(
     }
 }
 
+fn audio_building_hover(
+    audio_sources: Res<AudioSources>,
+    audio: Res<Audio>,
+    hovered_entities: Query<(Added<Hovered>, With<ScaleOnHover>)>,
+) {
+    static JUST_HOVERED: AtomicBool = AtomicBool::new(false);
+
+    if hovered_entities.is_empty() {
+        JUST_HOVERED.store(false, Ordering::Relaxed);
+    } else if JUST_HOVERED.load(Ordering::Relaxed) {
+        return;
+    }
+
+    for (hovered, _) in hovered_entities.iter() {
+        if hovered {
+            audio.play(audio_sources.button_hover.clone());
+            JUST_HOVERED.store(true, Ordering::Relaxed);
+        }
+    }
+}
+
 fn audio_construct(
     audio_sources: Res<AudioSources>,
     audio: Res<Audio>,
@@ -98,21 +127,18 @@ fn audio_construct(
 ) {
     for placeholder in new_placeholders.iter() {
         match placeholder.0 {
-            EntType::Harvester
-            | EntType::Base
+            EntType::Base
             | EntType::Storage
             | EntType::House
             | EntType::UpgradeInventory
             | EntType::BuilderAcademy
             | EntType::Monument => {
-                audio
-                    .play(audio_sources.construct.clone())
-                    .with_volume(0.35);
+                audio.play(audio_sources.construct.clone()).with_volume(5.);
             }
             EntType::Road => {
                 audio
                     .play(audio_sources.construct_road.clone())
-                    .with_volume(0.35);
+                    .with_volume(4.);
             }
             _ => {}
         }
@@ -149,6 +175,6 @@ fn audio_constructed(
     if play {
         audio
             .play(audio_sources.constructed.clone())
-            .with_volume(0.25);
+            .with_volume(0.5);
     }
 }

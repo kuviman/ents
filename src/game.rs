@@ -805,9 +805,9 @@ struct GoingForUpgrade<T>(PhantomData<T>);
 struct CanBuild;
 
 #[derive(Component)]
-struct BuildingUpgradeComponent<T> {
-    current_level: i32,
-    phantom_data: PhantomData<T>,
+pub struct BuildingUpgradeComponent<T> {
+    pub current_level: i32,
+    pub phantom_data: PhantomData<T>,
 }
 
 impl<T> BuildingUpgradeComponent<T> {
@@ -819,7 +819,7 @@ impl<T> BuildingUpgradeComponent<T> {
     }
 }
 
-trait BuildingUpgrade: Send + Sync + 'static {
+pub trait BuildingUpgrade: Send + Sync + 'static {
     fn add_systems(app: &mut App);
     const BASE_COST: i32;
 }
@@ -854,7 +854,7 @@ fn make_hoverable<T: BuildingUpgrade>(
 }
 
 #[derive(Component)]
-struct BuildingUpgradeToPerform<T>(PhantomData<T>);
+pub struct BuildingUpgradeToPerform<T>(PhantomData<T>);
 
 fn perform_building_upgrades<T: BuildingUpgrade>(
     buildings: Query<
@@ -1697,7 +1697,7 @@ impl EntType {
         }
     }
 
-    fn max_upgrades(&self) -> usize {
+    pub fn max_upgrades(&self) -> usize {
         match self {
             EntType::House => 9,
             EntType::BuilderAcademy | EntType::UpgradeInventory => 4,
@@ -2065,13 +2065,13 @@ fn setup_ui(asset_server: Res<AssetServer>, mut commands: Commands) {
 }
 
 #[derive(Resource)]
-struct Money(i32);
+pub struct Money(pub i32);
 
 #[derive(Component)]
-struct Hovered;
+pub struct Hovered;
 
 #[derive(Component)]
-struct IsHovered(bool);
+pub struct IsHovered(bool);
 
 fn hovering(
     cursor: Query<&cursor::WorldPos>,
@@ -2101,7 +2101,7 @@ fn hovering(
 }
 
 #[derive(Component)]
-struct ScaleOnHover;
+pub struct ScaleOnHover;
 
 fn scale_hovered(
     mut entities: Query<
