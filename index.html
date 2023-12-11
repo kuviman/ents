@@ -17,6 +17,12 @@
             Javascript and support for canvas is required
         </canvas>
     </div>
+    <script>
+        document.getElementById("bevy").oncontextmenu = function (e) {
+            e.preventDefault();
+            e.stopPropagation();
+        };
+    </script>
 </body>
 
 </html>

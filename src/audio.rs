@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use bevy_kira_audio::prelude::*;
+use bevy_geng_audio::prelude::*;
 
 use crate::{
     buttons::Disabled,
@@ -17,7 +17,18 @@ impl bevy::app::Plugin for Plugin {
         app.add_systems(Update, audio_buttons);
         app.add_systems(Update, audio_construct);
         app.add_systems(Update, audio_constructed);
+        app.add_systems(Update, stop_music_on_space);
         app.add_systems(OnEnter(WinState::CrabRave), start_crabrave);
+    }
+}
+
+fn stop_music_on_space(
+    input: Res<Input<KeyCode>>,
+    mut instances: ResMut<Assets<AudioInstance>>,
+    music: Res<Music>,
+) {
+    if input.just_pressed(KeyCode::Space) {
+        instances.get_mut(&music.0).unwrap().stop();
     }
 }
 
@@ -31,10 +42,8 @@ fn start_crabrave(
         .play(audio_sources.crab_rave.clone())
         .looped()
         .with_volume(0.35);
-    instances
-        .get_mut(&music.0)
-        .unwrap()
-        .stop(AudioTween::linear(std::time::Duration::from_secs(1)));
+    instances.get_mut(&music.0).unwrap().stop();
+    // .stop(AudioTween::linear(std::time::Duration::from_secs(1)));
 }
 
 #[derive(Resource)]
@@ -71,7 +80,6 @@ fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>, audio: Re
 }
 
 fn audio_buttons(
-    mut commands: Commands,
     audio_sources: Res<AudioSources>,
     audio: Res<Audio>,
     mut button_interactions: Query<
@@ -95,7 +103,6 @@ fn audio_buttons(
 }
 
 fn audio_construct(
-    mut commands: Commands,
     audio_sources: Res<AudioSources>,
     audio: Res<Audio>,
     new_placeholders: Query<&Placeholder, Added<Placeholder>>,
@@ -124,7 +131,6 @@ fn audio_construct(
 }
 
 fn audio_constructed(
-    mut commands: Commands,
     audio_sources: Res<AudioSources>,
     audio: Res<Audio>,
     new_entities: Query<&EntType, Added<EntType>>,
