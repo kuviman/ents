@@ -181,7 +181,6 @@ pub fn scaffold_mesh() -> Mesh {
         4, 5, 6, 6, 7, 4, // back
         8, 9, 10, 10, 11, 8, // right
         12, 13, 14, 14, 15, 12, // left
-        16, 17, 18, 18, 19, 16, // top
     ]);
 
     Mesh::new(PrimitiveTopology::TriangleList)

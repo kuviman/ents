@@ -17,18 +17,7 @@ impl bevy::app::Plugin for Plugin {
         app.add_systems(Update, audio_buttons);
         app.add_systems(Update, audio_construct);
         app.add_systems(Update, audio_constructed);
-        app.add_systems(Update, stop_music_on_space);
         app.add_systems(OnEnter(WinState::CrabRave), start_crabrave);
-    }
-}
-
-fn stop_music_on_space(
-    input: Res<Input<KeyCode>>,
-    mut instances: ResMut<Assets<AudioInstance>>,
-    music: Res<Music>,
-) {
-    if input.just_pressed(KeyCode::Space) {
-        instances.get_mut(&music.0).unwrap().stop();
     }
 }
 

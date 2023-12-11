@@ -72,10 +72,12 @@ pub enum WinState {
 
 fn start_crabrave(
     monuments: Query<&BuildingUpgradeComponent<MonumentUpgrade>, Without<NeedsResource>>,
+    mut win_text: Query<&mut Style, With<WinText>>,
     mut next_state: ResMut<NextState<WinState>>,
 ) {
     if monuments.iter().any(|upgrade| upgrade.current_level == 3) {
         next_state.set(WinState::CrabRave);
+        win_text.single_mut().display = Display::DEFAULT;
     }
 }
 
@@ -85,7 +87,7 @@ impl Plugin for GamePlugin {
         app.add_systems(Update, generate_chunks);
         app.add_systems(Update, tooltip);
 
-        app.add_systems(Update, start_crabrave.run_if(in_state(WinState::NoWin)));
+        app.add_systems(PostUpdate, start_crabrave.run_if(in_state(WinState::NoWin)));
         app.add_systems(Update, crabrave.run_if(in_state(WinState::CrabRave)));
         app.add_state::<WinState>();
 
@@ -284,12 +286,13 @@ fn scaffolding(
     mut commands: Commands,
 ) {
     for (entity, size) in q.iter() {
+        info!("SCAFF");
         let child = commands
             .spawn(PbrBundle {
                 mesh: ent_materials.scaffold_mesh.clone(),
                 material: ent_materials.scaffold_material.clone(),
                 transform: Transform::from_scale(
-                    (size.0.as_vec2() + Vec2::splat(0.1))
+                    (size.0.as_vec2() + Vec2::splat(0.2))
                         .extend(size.0.max_element() as f32)
                         .xzy(),
                 ),
@@ -805,7 +808,7 @@ fn register_building_upgrade<T: BuildingUpgrade>(app: &mut App) {
     app.add_systems(Update, tooltip_upgrade::<T>);
     app.add_systems(Update, make_hoverable::<T>);
     app.add_systems(Update, perform_building_upgrades::<T>);
-    app.add_systems(Update, click_to_upgrade_building::<T>);
+    app.add_systems(PostUpdate, click_to_upgrade_building::<T>);
     app.add_systems(Update, update_upgrade_transforms::<T>);
     app.add_event::<BuildingUpgradeEvent<T>>();
     T::add_systems(app);
@@ -1782,6 +1785,9 @@ fn tooltip(
     }
 }
 
+#[derive(Component)]
+struct WinText;
+
 fn setup_ui(asset_server: Res<AssetServer>, mut commands: Commands) {
     // commands.spawn({
     //     let mut camera = Camera2dBundle::default();
@@ -1930,6 +1936,29 @@ fn setup_ui(asset_server: Res<AssetServer>, mut commands: Commands) {
                         GoldText,
                     ));
                 });
+            });
+            root.spawn(NodeBundle {
+                style: Style {
+                    width: Val::Percent(100.0),
+                    top: Val::Px(24.0),
+                    position_type: PositionType::Absolute,
+                    justify_content: JustifyContent::Center,
+                    ..default()
+                },
+                ..default()
+            })
+            .with_children(|top| {
+                top.spawn((
+                    TextBundle {
+                        text: Text::from_section("YOU WIN", text_style.clone()),
+                        style: Style {
+                            display: Display::None,
+                            ..default()
+                        },
+                        ..default()
+                    },
+                    WinText,
+                ));
             });
             root.spawn(NodeBundle {
                 style: Style {
@@ -2197,7 +2226,8 @@ fn setup_materials(
         );
         materials.insert((ent_type, EntState::Normal), material_assets.add(material));
     }
-    commands.insert_resource(EntMaterials {
+
+    let ent_materials = EntMaterials {
         meshes,
         materials,
         harvestable_mesh: mesh_assets.add(meshes::make_resource()),
@@ -2246,7 +2276,21 @@ fn setup_materials(
             base_color_texture: Some(asset_server.load("scaffolding.png")),
             ..default()
         }),
+    };
+
+    let size = Size(IVec2::splat(10));
+    commands.spawn(PbrBundle {
+        mesh: ent_materials.scaffold_mesh.clone(),
+        material: ent_materials.scaffold_material.clone(),
+        transform: Transform::from_scale(
+            (size.0.as_vec2() + Vec2::splat(0.2))
+                .extend(size.0.max_element() as f32)
+                .xzy(),
+        ),
+        ..default()
     });
+
+    commands.insert_resource(ent_materials);
 }
 
 fn setup_camera(
