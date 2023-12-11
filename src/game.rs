@@ -174,6 +174,8 @@ impl Plugin for GamePlugin {
                 matches!(state.get(), PlayerState::Placing(..))
             }),
         );
+        app.insert_resource(HavePlaced(false));
+        app.add_systems(Update, stop_placing_on_mouse_release);
         app.add_systems(Update, update_placing_preview);
         app.add_systems(Update, bavy_monument);
 
@@ -514,6 +516,24 @@ fn update_placing_preview(
                 PlacementBlocked(true),
             ));
         }
+    }
+}
+
+#[derive(Resource)]
+struct HavePlaced(bool);
+
+fn init_have_placed(mut placed: ResMut<HavePlaced>) {
+    placed.0 = false;
+}
+
+fn stop_placing_on_mouse_release(
+    placed: Res<HavePlaced>,
+    mouse: Res<Input<MouseButton>>,
+    keyboard: Res<Input<KeyCode>>,
+    mut next_state: ResMut<NextState<PlayerState>>,
+) {
+    if mouse.just_released(MouseButton::Left) && placed.0 && !keyboard.pressed(KeyCode::ShiftLeft) {
+        next_state.set(PlayerState::Normal);
     }
 }
 
@@ -1468,6 +1488,7 @@ fn place_ent(
     preview: Query<(&Pos, &PlacementBlocked)>,
     costs: Res<EntCosts>,
     state: Res<State<PlayerState>>,
+    mut placed: ResMut<HavePlaced>,
 ) {
     let &PlayerState::Placing(ent_type) = state.get() else {
         unreachable!();
@@ -1480,6 +1501,7 @@ fn place_ent(
         return;
     }
     if input.just_pressed(MouseButton::Left) || input.pressed(MouseButton::Left) {
+        placed.0 = true;
         let cost = costs.0[&ent_type];
         money.0 -= cost;
         let mut entity = commands.spawn((
@@ -1589,12 +1611,14 @@ fn button_actions(
     mut events: EventReader<ButtonAction>,
     current_state: Res<State<PlayerState>>,
     mut player_state: ResMut<NextState<PlayerState>>,
+    mut commands: Commands,
 ) {
     for event in events.read() {
         match event {
             &ButtonAction::Spawn(typ) => {
                 if *current_state.get() != PlayerState::Placing(typ) {
                     player_state.set(PlayerState::Placing(typ));
+                    commands.insert_resource(HavePlaced(false));
                 } else {
                     player_state.set(PlayerState::Normal);
                 }
