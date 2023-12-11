@@ -2301,19 +2301,6 @@ fn setup_materials(
             ..default()
         }),
     };
-
-    let size = Size(IVec2::splat(10));
-    commands.spawn(PbrBundle {
-        mesh: ent_materials.scaffold_mesh.clone(),
-        material: ent_materials.scaffold_material.clone(),
-        transform: Transform::from_scale(
-            (size.0.as_vec2() + Vec2::splat(0.2))
-                .extend(size.0.max_element() as f32)
-                .xzy(),
-        ),
-        ..default()
-    });
-
     commands.insert_resource(ent_materials);
 }
 
