@@ -1195,18 +1195,20 @@ fn ent_store(
     mut commands: Commands,
 ) {
     for (ent, ent_pos, mut inventory) in ents.iter_mut() {
-        let try_to_store = MOVE_DIRECTIONS
+        for storage_entity in MOVE_DIRECTIONS
             .into_iter()
             .flat_map(|dir| tile_map.entities_at(ent_pos.0 + dir))
-            .find(|&entity| storage.get(entity).is_ok());
-        if let Some(storage_entity) = try_to_store {
-            let mut storage = storage.get_mut(storage_entity).unwrap();
+        {
+            let Ok(mut storage) = storage.get_mut(storage_entity) else {
+                continue;
+            };
             let amount_to_store = inventory.current.min(storage.max - storage.current).max(0);
             inventory.current -= amount_to_store;
             storage.current += amount_to_store;
             money.0 += amount_to_store;
             if inventory.current == 0 {
                 commands.entity(ent).remove::<Storing>().insert(Harvesting);
+                break;
             }
         }
     }
@@ -1225,12 +1227,13 @@ fn take_resource(
     mut commands: Commands,
 ) {
     for (ent, ent_pos, mut inventory) in ents.iter_mut() {
-        let try_to_store = MOVE_DIRECTIONS
+        for storage_entity in MOVE_DIRECTIONS
             .into_iter()
             .flat_map(|dir| tile_map.entities_at(ent_pos.0 + dir))
-            .find(|&entity| storage.get(entity).is_ok());
-        if let Some(storage_entity) = try_to_store {
-            let mut storage = storage.get_mut(storage_entity).unwrap();
+        {
+            let Ok(mut storage) = storage.get_mut(storage_entity) else {
+                continue;
+            };
             let amount_to_take = storage
                 .current
                 .min(inventory.max - inventory.current)
