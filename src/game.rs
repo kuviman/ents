@@ -1245,6 +1245,7 @@ fn take_resource(
                     .entity(ent)
                     .remove::<TakingResource>()
                     .insert(BringingResource);
+                break;
             }
         }
     }
