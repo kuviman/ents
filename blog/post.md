@@ -5,7 +5,7 @@ This is a game jam where you need to make a game using [Bevy](https://bevyengine
 
 Game jams are great - they are fun, let you test game ideas quickly, meet new people, help improve your skills, add a project to your portfolio.
 
-This was my second time using bevy engine and I joined the jam to learn more about using the ECS approach, since usually I don't.
+This was my second time using bevy engine and I joined the jam to learn more about using the ECS approach, since usually I don't use it.
 
 [The game we made can be played itch.io](https://kuviman.itch.io/ents).
 
