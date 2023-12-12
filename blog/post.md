@@ -84,7 +84,7 @@ From what I understand, the issue is somewhere in `cpal`. The author of [Fyrox g
 
 Last time I tried bevy was [for the previous bevy jam](https://kuviman.itch.io/linksider/devlog/520806/i-tried-bevy-for-the-first-time-for-a-game-jam).
 I tried working on linksider more using bevy, but pretty quickly decided to rewrite in into my own custom engine.
-Using ECS for a puzzle game was very error prone being the biggest reason (still maybe due to my little experience with it).
+Using ECS for a puzzle game being very error prone was the biggest reason (still maybe due to my little experience with it).
 
 Using ECS for a game like we did this time, to the contrary, was pretty enjoyable despite some annoyances ([here's some notes](BEVY_POG.md)). I definetely want to continue trying to use ECS outside of a gamejam now.
 
