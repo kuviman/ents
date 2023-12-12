@@ -12,11 +12,11 @@ This is a list of notes I was taking when participating in the bevy jam
 
 ## AlphaMode::Blend breaks depth test
 
-WTF
+It disables depth test? Why?
 
 ## camera.viewport_to_world2d even though camera is 3d?
 
-WTF
+This API should not exist on 3d cameras
 
 ## Switching states & cleanup
 
