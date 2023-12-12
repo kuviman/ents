@@ -1,6 +1,8 @@
-# Bevy POG
+# Bevy notes
 
-## Rightclick context menu
+This is a list of notes I was taking when participating in the bevy jam
+
+## Rightclick context menu on the web
 
 <https://github.com/bevyengine/bevy/issues/4721>
 
@@ -18,23 +20,32 @@ WTF
 
 ## Switching states & cleanup
 
-remembering all entities and despawning seems hard
+remembering all entities and despawning seems very error prone
 
-## State machine for a unit
+## State machine for an entity
 
-System conflicts - one system removes StateA and inserts StateB, another removes StateA and inserts StateC
+Using enum component seems not extensible, I tried using `With<SpecificState>`
+
+System conflicts - one system removes `StateA` and inserts `StateB`, another removes `StateA` and inserts `StateC`, need to be very careful.
 
 ## EntityCommands::insert_or_update
 
+Entry API for components would be nice to have
+
 ## Bool component vs added/removed component
 
-And what about both?
+I'm assuming its faster to filter using `With<Component>` than `Component(bool)`, but the latter is sometimes easier to use, especially modify.
+What about using both?
 
-## spawn entity with only type component -> populate other components pattern
+## Spawn entity with only type component -> populate other components pattern
+
+When spawning entities, I only spawned them with an `EntType` enum component, and another system is populating other components necessary for gameplay mechanics/visuals.
+
+Especially if I was splitting gameplay & visual component initialization into separate systems seems like a good pattern?
 
 ## mold
 
-`mold` is faster but need to recompile from scratch after building for web
+`mold` linker is faster but need to recompile from scratch after building for web
 
 ## compile times
 
@@ -44,13 +55,11 @@ better this time (~2 s), using dynamic linking, breaks sometimes, fix using `car
 
 Web build had black screen - <https://github.com/NiklasEi/bevy_game_template/issues/84>
 
-This shows how easy it is to break something when making changes?
-
 Native build also stopped working at some point. No idea what asset failed when using `bevy-asset-manager`.
 
 ## Has vs With
 
-So I used `Has<Component>` instead of `With<Component>` and it took me 1 hour to find the problem.
+So I used `Has<Component>` instead of `With<Component>` as a filter in query and it took me 1 hour to find the problem.
 
 ## App does not exit
 
@@ -65,7 +74,7 @@ In reality: need to Ctrl-C
 ## Inserting into despawned entities
 
 Although entity existed during system? Becase of system order? Which is RNG? POG
-Also removing components seem to work
+But removing components of despawned entities does not panic?
 
 ## UI & cameras
 
