@@ -33,7 +33,7 @@ Here's a list of features we ended up with:
 - improved harvesters, which have improved inventory size of 10
 - builders, which work on moving resources from storages to the build sites
 - upgrade "academies", which turn regular workers into improved harvesters/builders
-- upgraded buildings, which work like constructing the same building on top of existing one
+- upgraded buildings, which work like constructing the same building on top of an existing one
 - roads, which make crabs move faster and are required to build something nearby
 - the bevy monument, which after 3 upgrades starts the crab rave
 
